@@ -42,7 +42,7 @@ export default function Hero() {
 
           <div className="flex flex-wrap gap-4">
             <a
-              href="#"
+              href="/markets"
               className="px-8 py-4 bg-forest text-cream font-medium rounded-full hover:bg-forest/90 transition-all hover:shadow-lg hover:shadow-forest/20 hover:-translate-y-0.5"
             >
               Start Predicting →
