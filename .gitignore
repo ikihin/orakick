@@ -1,0 +1,8 @@
+node_modules/
+.next/
+target/
+.anchor/
+test-ledger/
+.DS_Store
+*.env
+.cache/
