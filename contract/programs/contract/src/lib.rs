@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("61fVCS1iTjJsRzacX9dhAcJhd7hQAEiCzwqMxjkXdtpB");
+declare_id!("6cZmF2RJSN2KmYvCDLeiqMZvUFwasjpYY5anBhENnKPR");
 
 #[program]
 pub mod orakick {

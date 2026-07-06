@@ -19,7 +19,7 @@ export default function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 glass">
       <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
         <a href="#" className="flex items-center">
-          <Image src="/logo.png" alt="Orakick" width={280} height={90} className="h-16 w-auto" />
+          <Image src="/logo.png" alt="Orakick" width={400} height={130} className="h-32 w-auto" />
         </a>
 
         <div className="hidden md:flex items-center gap-2">
@@ -36,16 +36,10 @@ export default function Navbar() {
 
         <div className="hidden md:flex items-center gap-4">
           <a
-            href="#"
-            className="text-sm text-navy/70 hover:text-forest transition-colors"
-          >
-            Sign In
-          </a>
-          <a
-            href="#"
+            href="/markets"
             className="px-5 py-2.5 bg-forest text-cream text-sm font-medium rounded-full hover:bg-forest/90 transition-colors"
           >
-            Get Started
+            Launch App
           </a>
         </div>
 
@@ -76,10 +70,9 @@ export default function Navbar() {
               {link.label}
             </a>
           ))}
-          <div className="pt-3 border-t border-sage/20 flex gap-3">
-            <a href="#" className="text-sm text-navy/70">Sign In</a>
-            <a href="#" className="px-4 py-2 bg-forest text-cream text-sm rounded-full">
-              Get Started
+          <div className="pt-3 border-t border-sage/20">
+            <a href="/markets" className="px-4 py-2 bg-forest text-cream text-sm rounded-full">
+              Launch App
             </a>
           </div>
         </div>

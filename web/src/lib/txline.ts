@@ -1,15 +1,19 @@
-const TXLINE_API = "https://txline.txodds.com";
+const NETWORK: string = "devnet";
+const API_ORIGIN =
+  NETWORK === "mainnet"
+    ? "https://txline.txodds.com"
+    : "https://txline-dev.txodds.com";
 
-let cachedToken: string | null = null;
+let cachedJwt: string | null = null;
 
 export async function getGuestToken(): Promise<string> {
-  if (cachedToken) return cachedToken;
-
-  const res = await fetch(`${TXLINE_API}/guest/start`, {
+  if (cachedJwt) return cachedJwt;
+  const res = await fetch(`${API_ORIGIN}/auth/guest/start`, {
     method: "POST",
   });
+  if (!res.ok) throw new Error("Failed to get guest JWT");
   const data = await res.json();
-  cachedToken = data.token;
+  cachedJwt = data.token;
   return data.token;
 }
 
@@ -40,35 +44,42 @@ export interface OddsUpdate {
   Prices: number[];
 }
 
-export async function getFixtures(): Promise<Fixture[]> {
-  const token = await getGuestToken();
-  const res = await fetch(`${TXLINE_API}/guest/fixtures/snapshot`, {
-    headers: { Authorization: `Bearer ${token}` },
+export async function getFixtures(apiToken: string): Promise<Fixture[]> {
+  const jwt = await getGuestToken();
+  const res = await fetch(`${API_ORIGIN}/api/fixtures/snapshot`, {
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      "X-Api-Token": apiToken,
+    },
   });
-  if (!res.ok) throw new Error("Failed to fetch fixtures");
+  if (!res.ok) throw new Error(`Failed to fetch fixtures: ${res.status}`);
   return res.json();
 }
 
-export async function getOdds(fixtureId: number): Promise<OddsUpdate[]> {
-  const token = await getGuestToken();
-  const res = await fetch(`${TXLINE_API}/guest/odds/snapshot/${fixtureId}`, {
-    headers: { Authorization: `Bearer ${token}` },
+export async function getOdds(fixtureId: number, apiToken: string): Promise<OddsUpdate[]> {
+  const jwt = await getGuestToken();
+  const res = await fetch(`${API_ORIGIN}/api/odds/snapshot/${fixtureId}`, {
+    headers: {
+      Authorization: `Bearer ${jwt}`,
+      "X-Api-Token": apiToken,
+    },
   });
-  if (!res.ok) throw new Error("Failed to fetch odds");
+  if (!res.ok) throw new Error(`Failed to fetch odds: ${res.status}`);
   return res.json();
 }
 
 export function createOddsStream(
+  apiToken: string,
   onData: (data: OddsUpdate) => void,
   onError?: (err: Event) => void
 ): EventSource | null {
   if (typeof window === "undefined") return null;
 
-  const token = cachedToken;
-  if (!token) return null;
+  const jwt = cachedJwt;
+  if (!jwt || !apiToken) return null;
 
   const es = new EventSource(
-    `${TXLINE_API}/guest/odds/stream?token=${token}`
+    `${API_ORIGIN}/api/odds/stream?token=${jwt}&apiToken=${apiToken}`
   );
 
   es.onmessage = (event) => {

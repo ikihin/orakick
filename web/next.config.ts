@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  turbopack: {},
+  allowedDevOrigins: ["8080-cs-340912351632-default.cs-asia-southeast1-fork.cloudshell.dev"],
 };
 
 export default nextConfig;

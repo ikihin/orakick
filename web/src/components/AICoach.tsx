@@ -1,6 +1,45 @@
+"use client";
+
 import Image from "next/image";
+import { useEffect, useState } from "react";
 
 export default function AICoach() {
+  const [coachQuote, setCoachQuote] = useState(
+    "Brazil vs Argentina — Brazil has 68% win probability based on current form. The over 2.5 goals market is showing value at current odds. Consider a split position."
+  );
+
+  useEffect(() => {
+    async function fetchLiveAdvice() {
+      try {
+        const fixturesRes = await fetch("/api/fixtures");
+        if (!fixturesRes.ok) return;
+        const fixtures = await fixturesRes.json();
+        if (!Array.isArray(fixtures) || fixtures.length === 0) return;
+
+        const f = fixtures[0];
+        const coachRes = await fetch("/api/ai-coach", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            match: {
+              teamA: f.Participant1,
+              teamB: f.Participant2,
+              odds: { home: 2.1, draw: 3.2, away: 2.8 },
+              kickoff: new Date(f.StartTime > 1e12 ? f.StartTime : f.StartTime * 1000).toUTCString(),
+              competition: f.Competition || "World Cup",
+            },
+          }),
+        });
+        if (!coachRes.ok) return;
+        const advice = await coachRes.json();
+        if (advice.reasoning) {
+          setCoachQuote(`${f.Participant1} vs ${f.Participant2} — ${advice.reasoning}`);
+        }
+      } catch {}
+    }
+    fetchLiveAdvice();
+  }, []);
+
   return (
     <section id="ai-coach" className="relative py-32 px-6 overflow-hidden">
       {/* Background image */}
@@ -56,15 +95,13 @@ export default function AICoach() {
                 Coach says:
               </div>
               <p className="text-navy/80 leading-relaxed">
-                &ldquo;Brazil vs Argentina — Brazil has 68% win probability based on
-                current form. The over 2.5 goals market is showing value at
-                current odds. Consider a split position.&rdquo;
+                &ldquo;{coachQuote}&rdquo;
               </p>
             </div>
 
-            <button className="px-8 py-4 bg-forest text-cream font-medium rounded-full hover:bg-forest/90 transition-all hover:shadow-lg hover:shadow-forest/20 hover:-translate-y-0.5">
-              Ask Coach
-            </button>
+            <a href="/markets" className="inline-block px-8 py-4 bg-forest text-cream font-medium rounded-full hover:bg-forest/90 transition-all hover:shadow-lg hover:shadow-forest/20 hover:-translate-y-0.5">
+              Ask Coach →
+            </a>
           </div>
         </div>
       </div>
