@@ -6,3 +6,9 @@ test-ledger/
 .DS_Store
 *.env
 .cache/
+.env
+.env.*
+credentials.json
+*.pem
+*.key
+.credentials
