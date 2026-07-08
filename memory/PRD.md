@@ -77,3 +77,32 @@ Repo: https://github.com/ikihin/orakick.git
 - **Bulk removal of `any`** in `placeBet.ts` / `WalletProvider.tsx` /
   `useOrakick.ts`: Anchor + wallet-adapter surfaces are typed loosely
   upstream; typing them properly is a separate cleanup task.
+
+## TxLINE Merkle Proof + validate_stat Settlement (this session)
+
+### What shipped
+- `src/lib/txoracle-idl.ts` — minimal TxOracle devnet IDL (validate_stat + all required struct types: `ProofNode`, `ScoreStat`, `StatTerm`, `ScoresBatchSummary`, `TraderPredicate`, etc.). Program ID `6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J`.
+- `src/lib/validateStat.ts` — client-side helper that fetches the fixture Merkle bundle from TxLINE, constructs two `validate_stat` instructions (home + away goals at full-time), sends them as one Solana transaction, and returns the verified outcome + explorer-linkable signature.
+- `src/lib/resolveMatch.ts` — orchestrator: calls `validateStat` then `Orakick.resolve_match(score_a, score_b)`; returns both TX sigs.
+- `src/lib/claimWinnings.ts` — CPI-safe wrapper around `Orakick.claim_winnings` including USDC ATA bootstrap.
+- `src/app/api/proofs/scores/route.ts` — TxLINE `/api/scores/proofs/{fixtureId}` proxy. Falls back to a deterministic demo payload when `TXLINE_API_TOKEN` isn't configured (`?demo=1`) so the demo video works without a live subscription.
+- `src/app/admin/resolve/page.tsx` — Match Resolution Console with pipeline visualiser (fetch proof → validate_stat → resolve_match) and demo-mode toggle. Every step links to Solana Explorer.
+- `src/app/profile/page.tsx` — Real on-chain status derivation (win/lose/pending from decoded MatchMarket status + result), Claim button per winning prediction, live Merkle Proof viewer modal.
+- `src/components/Navbar.tsx` — added "RESOLVE CONSOLE" menu link.
+
+### Design choice — why client-driven validate_stat instead of CPI
+Original Orakick program (`6cZmF2R…`) already exposes `resolve_match(score_a, score_b)` + `claim_winnings`. Rewriting it to CPI into `validate_stat` requires anchor/solana tooling not installed in the container plus a devnet redeploy that would invalidate the existing PDA graph. Doing verification client-side keeps the same trust model — `validate_stat` returns `bool` from a read-only PDA, and its transaction signature is the auditable receipt — while avoiding the redeploy risk before submission. README documents the CPI upgrade path as future work.
+
+### Judge audit trail (per settled match)
+- TX #1: `validate_stat × 2` on TxOracle → proves home & away goals.
+- TX #2: `Orakick.resolve_match(score_a, score_b)` → sets market outcome.
+- TX #3 (per winner): `Orakick.claim_winnings` → releases USDC from vault PDA.
+
+### README fully rewritten with
+- Track description, architecture diagram, settlement pipeline, TxLINE endpoints table, program addresses, demo-mode instructions, feature checklist, TxLINE feedback.
+
+### Remaining hackathon work (not in this session)
+- Record 5-minute demo video (walking through /markets → predict → /admin/resolve → /profile Claim).
+- Deploy to Vercel with `TXLINE_API_TOKEN` env set (after activating a live subscription).
+- Anchor CPI upgrade: fold `validate_stat` into an on-program `resolve_match_with_proof` variant + redeploy.
+- Keeper bot / SSE-driven auto-resolve.

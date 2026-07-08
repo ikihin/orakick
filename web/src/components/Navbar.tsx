@@ -85,6 +85,7 @@ export default function Navbar() {
                     <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)} />
                     <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-navy/5 py-2 z-20 animate-in fade-in slide-in-from-top-2">
                       <a href="/profile" className="block px-4 py-2 text-xs font-bold text-navy hover:bg-navy/5 transition-colors">MY PROFILE</a>
+                      <a href="/admin/resolve" className="block px-4 py-2 text-xs font-bold text-golden hover:bg-golden/5 transition-colors">RESOLVE CONSOLE</a>
                       <a href="/docs" className="block px-4 py-2 text-xs font-bold text-forest hover:bg-forest/5 transition-colors">TECHNICAL DOCS</a>
                       <button 
                         onClick={() => {

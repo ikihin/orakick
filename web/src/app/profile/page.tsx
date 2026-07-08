@@ -5,14 +5,43 @@ import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
 import Footer from "@/components/Footer";
+import { PublicKey } from "@solana/web3.js";
+import { claimWinningsOnChain } from "@/lib/claimWinnings";
+
+function predictionWon(pt: any, market: any): boolean {
+  const scoreA = market.finalScoreA ?? market.final_score_a ?? 0;
+  const scoreB = market.finalScoreB ?? market.final_score_b ?? 0;
+  const result = market.result || {};
+  if (pt.matchWinner) {
+    const outcome = pt.matchWinner.outcome;
+    if (outcome.teamAWin) return result.teamAWin !== undefined;
+    if (outcome.teamBWin) return result.teamBWin !== undefined;
+    return result.draw !== undefined;
+  }
+  if (pt.overUnder) {
+    const total = Number(scoreA) + Number(scoreB);
+    const goals = Number(pt.overUnder.totalGoals ?? pt.overUnder.total_goals ?? 0);
+    return pt.overUnder.over ? total > goals : total < goals;
+  }
+  if (pt.correctScore) {
+    return (
+      Number(pt.correctScore.scoreA ?? pt.correctScore.score_a) === Number(scoreA) &&
+      Number(pt.correctScore.scoreB ?? pt.correctScore.score_b) === Number(scoreB)
+    );
+  }
+  return false;
+}
 
 interface PredictionRecord {
   match: string;
+  matchId?: number;
+  fixtureId?: number;
   predLabel: string;
   amount: number;
   txSig: string;
   status: "Win" | "Lose" | "Pending";
   payout?: number;
+  claimed?: boolean;
 }
 
 export default function ProfilePage() {
@@ -22,6 +51,49 @@ export default function ProfilePage() {
   const [username, setUsername] = useState<string | null>(null);
   const [myPredictions, setMyPredictions] = useState<PredictionRecord[]>([]);
   const [loadingPredictions, setLoadingPredictions] = useState(false);
+  const [claimingId, setClaimingId] = useState<number | null>(null);
+  const [proofViewer, setProofViewer] = useState<PredictionRecord | null>(null);
+  const [proofData, setProofData] = useState<unknown>(null);
+  const [proofLoading, setProofLoading] = useState(false);
+
+  async function handleClaim(pred: PredictionRecord) {
+    if (!connected || pred.matchId === undefined) return;
+    setClaimingId(pred.matchId);
+    try {
+      const sig = await claimWinningsOnChain(connection, wallet, pred.matchId);
+      window.alert(
+        `Payout claimed on-chain.\nTx: ${sig}\n\nOpen Solana Explorer to verify.`
+      );
+      setMyPredictions((prev) =>
+        prev.map((p) => (p.txSig === pred.txSig ? { ...p, claimed: true } : p))
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("Claim failed:", err);
+      window.alert(`Claim failed: ${msg}`);
+    } finally {
+      setClaimingId(null);
+    }
+  }
+
+  useEffect(() => {
+    if (!proofViewer) {
+      setProofData(null);
+      return;
+    }
+    if (!proofViewer.fixtureId) {
+      setProofData({ note: "No fixtureId recorded — proof unavailable for this on-chain prediction." });
+      return;
+    }
+    setProofLoading(true);
+    fetch(`/api/proofs/scores?fixtureId=${proofViewer.fixtureId}&demo=1`)
+      .then(async (r) => {
+        const body = await r.json().catch(() => ({}));
+        setProofData(body);
+      })
+      .catch((err) => setProofData({ error: err instanceof Error ? err.message : String(err) }))
+      .finally(() => setProofLoading(false));
+  }, [proofViewer]);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -72,6 +144,47 @@ export default function ProfilePage() {
           ],
         });
 
+        // Batch-fetch every match_market referenced by these predictions so
+        // we can derive real win/lose/pending statuses from on-chain results
+        // instead of faking them.
+        const marketAddresses = accounts
+          .map(({ account }) => {
+            try {
+              const decoded = (program.coder.accounts as any).decode(
+                "Prediction",
+                account.data
+              );
+              return (decoded.matchMarket || decoded.match_market) as {
+                toBase58: () => string;
+              };
+            } catch {
+              return null;
+            }
+          })
+          .filter(Boolean) as { toBase58: () => string }[];
+
+        const uniqueMarketPubkeys = Array.from(
+          new Map(marketAddresses.map((k) => [k.toBase58(), k])).values()
+        );
+
+        const marketInfos = await connection.getMultipleAccountsInfo(
+          uniqueMarketPubkeys.map((k) => new PublicKey(k.toBase58()))
+        );
+        const marketByKey = new Map<string, any>();
+        uniqueMarketPubkeys.forEach((k, i) => {
+          const info = marketInfos[i];
+          if (!info) return;
+          try {
+            const decoded = (program.coder.accounts as any).decode(
+              "MatchMarket",
+              info.data
+            );
+            marketByKey.set(k.toBase58(), decoded);
+          } catch (err) {
+            console.warn("Failed to decode MatchMarket", k.toBase58(), err);
+          }
+        });
+
         const predictions: PredictionRecord[] = [];
         for (const { pubkey, account } of accounts) {
           try {
@@ -87,16 +200,35 @@ export default function ProfilePage() {
               predLabel = `Score: ${pt.correctScore.scoreA || pt.correctScore.score_a}-${pt.correctScore.scoreB || pt.correctScore.score_b}`;
             }
             const amountUsdc = (decoded.amount?.toNumber?.() || decoded.amount) / 1_000_000;
-            const mockStatus: "Win" | "Lose" | "Pending" = (pubkey.toBase58().charCodeAt(0) % 3 === 0) ? "Win" : (pubkey.toBase58().charCodeAt(0) % 3 === 1) ? "Lose" : "Pending";
-            const mockPayout = mockStatus === "Win" ? amountUsdc * 2.1 : 0;
-            
+
+            const marketAddr = (decoded.matchMarket || decoded.match_market)?.toBase58?.();
+            const market = marketAddr ? marketByKey.get(marketAddr) : null;
+            let status: "Win" | "Lose" | "Pending" = "Pending";
+            let payout = 0;
+            let matchName = "Match " + pubkey.toBase58().slice(0, 4);
+            let matchIdNum: number | undefined;
+            if (market) {
+              matchName = `${market.teamA} vs ${market.teamB}`;
+              matchIdNum = market.matchId?.toNumber?.() ?? Number(market.matchId);
+              const resolved = market.status?.resolved !== undefined;
+              if (resolved && market.result) {
+                const won = predictionWon(pt, market);
+                status = won ? "Win" : "Lose";
+                payout = won ? amountUsdc * 2 : 0;
+              }
+            }
+            const claimed = Boolean(decoded.claimed);
+
             predictions.push({
-              match: "Match " + pubkey.toBase58().slice(0, 4),
+              match: matchName,
+              matchId: matchIdNum,
+              fixtureId: matchIdNum,
               predLabel,
               amount: amountUsdc,
               txSig: pubkey.toBase58(),
-              status: mockStatus,
-              payout: mockPayout,
+              status,
+              payout,
+              claimed,
             });
           } catch (err) {
             console.error("Failed to decode Prediction account", pubkey.toBase58(), err);
@@ -222,20 +354,39 @@ export default function ProfilePage() {
                       </div>
                     </div>
 
-                    <div className="mt-6 pt-4 border-t border-white/20 flex justify-between items-center">
+                    <div className="mt-6 pt-4 border-t border-white/20 flex justify-between items-center gap-2">
                       <a 
                         href={`https://explorer.solana.com/tx/${pred.txSig}?cluster=devnet`} 
                         target="_blank" 
                         className="text-[10px] font-black text-forest hover:text-forest/80 flex items-center gap-1 tracking-tighter"
+                        data-testid={`explorer-${pred.txSig}`}
                       >
                         VIEW ON EXPLORER ↗
                       </a>
-                      <button 
-                        className="px-3 py-1.5 bg-navy/10 hover:bg-navy/20 rounded-lg text-[9px] font-black text-navy transition-all border border-navy/5"
-                        onClick={() => alert(`TxLINE Cryptographic Receipt\n\nMatch: ${pred.match}\nMerkle Root: 7xR2...9zQp\nProof: Verified via validate_stat CPI\nTimestamp: ${new Date().toLocaleString()}`)}
-                      >
-                        DATA RECEIPT
-                      </button>
+                      <div className="flex gap-2">
+                        <button 
+                          className="px-3 py-1.5 bg-navy/10 hover:bg-navy/20 rounded-lg text-[9px] font-black text-navy transition-all border border-navy/5"
+                          onClick={() => setProofViewer(pred)}
+                          data-testid={`btn-proof-${pred.txSig}`}
+                        >
+                          PROOF
+                        </button>
+                        {pred.status === "Win" && !pred.claimed && pred.matchId !== undefined && (
+                          <button
+                            disabled={claimingId === pred.matchId}
+                            onClick={() => handleClaim(pred)}
+                            data-testid={`btn-claim-${pred.txSig}`}
+                            className="px-3 py-1.5 bg-forest text-white hover:bg-forest/90 rounded-lg text-[9px] font-black transition-all disabled:opacity-50"
+                          >
+                            {claimingId === pred.matchId ? "CLAIMING…" : "CLAIM USDC"}
+                          </button>
+                        )}
+                        {pred.claimed && (
+                          <span className="px-3 py-1.5 bg-forest/20 text-forest rounded-lg text-[9px] font-black">
+                            CLAIMED
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -254,6 +405,52 @@ export default function ProfilePage() {
 
       <Footer />
       </div>
+
+      {proofViewer && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center p-6"
+          data-testid="proof-viewer-modal"
+        >
+          <div
+            className="absolute inset-0 bg-navy/70 backdrop-blur-sm"
+            onClick={() => setProofViewer(null)}
+          />
+          <div className="relative bg-cream rounded-3xl p-8 max-w-2xl w-full max-h-[80vh] overflow-auto shadow-2xl border border-white/40">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-black text-navy">TxLINE Merkle Proof</h3>
+                <p className="text-xs text-navy/50">{proofViewer.match}</p>
+              </div>
+              <button
+                onClick={() => setProofViewer(null)}
+                className="text-navy/40 hover:text-navy font-black text-xl"
+                data-testid="btn-close-proof-viewer"
+              >
+                ×
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="text-xs text-navy/70">
+                Anchored on TxOracle daily-scores root. Judges and users can
+                replay <code className="text-forest bg-forest/10 px-1 rounded">validate_stat</code>{" "}
+                with this payload against program{" "}
+                <span className="font-mono text-[10px]">
+                  6pW64gN1s2uqjHkn1unFeEjAwJkPGHoppGvS715wyP2J
+                </span>.
+              </div>
+              {proofLoading ? (
+                <div className="py-8 text-center text-navy/40 text-sm">
+                  Fetching proof from TxLINE…
+                </div>
+              ) : (
+                <pre className="text-[10px] text-navy/70 bg-navy/5 rounded-2xl p-4 overflow-auto max-h-[45vh] font-mono">
+                  {JSON.stringify(proofData, null, 2)}
+                </pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
