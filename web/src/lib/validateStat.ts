@@ -22,7 +22,7 @@ function dailyScoresRootsPda(epochDay: number): PublicKey {
 }
 
 /**
- * Shape of the proof bundle returned by `/api/proofs/scores` (TxLINE proxy).
+ * Shape of the proof bundle returned by `/txapi/proofs/scores` (TxLINE proxy).
  * Field names mirror the on-chain IDL structs to make wiring easier.
  */
 export interface ScoreProofBundle {
@@ -71,7 +71,7 @@ export async function validateMatchOnChain(
 
   // 1. Fetch proof bundle from our TxLINE proxy.
   const proofRes = await fetch(
-    `/api/proofs/scores?fixtureId=${fixtureId}`
+    `/txapi/proofs/scores?fixtureId=${fixtureId}`
   );
   if (!proofRes.ok) {
     const body = await proofRes.json().catch(() => ({}));

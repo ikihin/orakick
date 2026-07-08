@@ -106,3 +106,17 @@ Original Orakick program (`6cZmF2R…`) already exposes `resolve_match(score_a, 
 - Deploy to Vercel with `TXLINE_API_TOKEN` env set (after activating a live subscription).
 - Anchor CPI upgrade: fold `validate_stat` into an on-program `resolve_match_with_proof` variant + redeploy.
 - Keeper bot / SSE-driven auto-resolve.
+
+## Live TxLINE activation (this session)
+- Container keypair funded via user (5 SOL devnet). Pubkey `7Kr9Aa2kwCgsFAZPDT6mnN6cG6g6P4W8nqUqRj33tv89`.
+- `scripts/txline-subscribe.ts` executed → `TxOracle.subscribe(1, 4)` succeeded (tx `5DHDKjKCptcoaWcS4XLTpnMJvEb2VbyBHghdQ3vhaa8yKWUTB6REBAuVsjpFnQ4oQ8vgjikpLupJ5mHr6tXaq4gw`).
+- Guest JWT + activation signature → API token `txoracle_api_30e6a99…2949` written to `web/.env.local`.
+- Discovered correct proof endpoint from OpenAPI: `/api/scores/stat-validation?fixtureId=…&seq=…&statKeys=1,2`. Route updated + auto-fetches latest seq from `/api/scores/historical/{fixtureId}` when caller only knows fixtureId.
+
+## Ingress routing fix
+- Kubernetes ingress routes `/api/*` → port 8001, so Next.js API routes on port 3000 were returning 502 externally.
+- Moved `src/app/api/*` → `src/app/txapi/*` and updated all client fetches (`markets`, `profile`, `docs`, `AICoach`, `validateStat`) from `/api/` → `/txapi/`.
+- External URL now shows live "Live TxLINE Data" indicator with real World Cup / Friendlies fixtures.
+
+## Task 2 (Anchor CPI redeploy) — DEFERRED
+Container lacks Rust/Anchor/Solana CLI, and redeploy would rotate the program ID + require re-wiring frontend. Client-driven `validate_stat` (2 ixs per resolve tx) preserves the same on-chain trust model with a lower risk profile for the deadline. Documented as roadmap item in README.

@@ -314,7 +314,7 @@ export default function MarketsPage() {
   useEffect(() => {
     async function fetchTxLineData() {
       try {
-        const res = await fetch("/api/fixtures");
+        const res = await fetch("/txapi/fixtures");
         if (!res.ok) throw new Error("API error");
         const fixtures = await res.json();
 
@@ -327,7 +327,7 @@ export default function MarketsPage() {
           fixtures.slice(0, 12).map(async (f: any, i: number) => {
             let odds = { home: 2.0, draw: 3.2, away: 2.5 };
             try {
-              const oddsRes = await fetch(`/api/odds?fixtureId=${f.FixtureId}`);
+              const oddsRes = await fetch(`/txapi/odds?fixtureId=${f.FixtureId}`);
               if (oddsRes.ok) {
                 const oddsData = await oddsRes.json();
                 const match1x2 = Array.isArray(oddsData)
@@ -388,7 +388,7 @@ export default function MarketsPage() {
 
     setAiLoading(true);
     setAiAdvice(null);
-    fetch("/api/ai-coach", {
+    fetch("/txapi/ai-coach", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

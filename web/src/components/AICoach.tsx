@@ -11,13 +11,13 @@ export default function AICoach() {
   useEffect(() => {
     async function fetchLiveAdvice() {
       try {
-        const fixturesRes = await fetch("/api/fixtures");
+        const fixturesRes = await fetch("/txapi/fixtures");
         if (!fixturesRes.ok) return;
         const fixtures = await fixturesRes.json();
         if (!Array.isArray(fixtures) || fixtures.length === 0) return;
 
         const f = fixtures[0];
-        const coachRes = await fetch("/api/ai-coach", {
+        const coachRes = await fetch("/txapi/ai-coach", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

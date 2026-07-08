@@ -38,10 +38,10 @@ export default function DocsPage() {
               <h4 className="text-xs font-bold text-navy uppercase tracking-widest">Endpoints Used:</h4>
               <ul className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {[
-                  { name: "Snapshot Fixtures", path: "/api/fixtures/snapshot", desc: "Retrieves the full tournament schedule." },
-                  { name: "Snapshot Odds", path: "/api/odds/snapshot/{id}", desc: "Consensus 1X2 market prices." },
-                  { name: "Live Odds Stream", path: "/api/odds/stream", desc: "Real-time SSE feed for price movement." },
-                  { name: "Merkle Scores", path: "/api/scores/verifiable", desc: "Cryptographic proofs for result resolution." },
+                  { name: "Snapshot Fixtures", path: "/txapi/fixtures/snapshot", desc: "Retrieves the full tournament schedule." },
+                  { name: "Snapshot Odds", path: "/txapi/odds/snapshot/{id}", desc: "Consensus 1X2 market prices." },
+                  { name: "Live Odds Stream", path: "/txapi/odds/stream", desc: "Real-time SSE feed for price movement." },
+                  { name: "Merkle Scores", path: "/txapi/scores/verifiable", desc: "Cryptographic proofs for result resolution." },
                 ].map(item => (
                   <li key={item.name} className="bg-white/50 p-4 rounded-2xl border border-navy/5">
                     <p className="text-xs font-black text-forest">{item.name}</p>

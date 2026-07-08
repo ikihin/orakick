@@ -19,16 +19,20 @@ async function getJwt() {
 }
 
 /**
- * Proxies TxLINE score-proof endpoints. Judges and the frontend fetch the
- * Merkle proof bundle used by TxOracle.validate_stat here so they can be
- * inspected and replayed on-chain.
+ * Proxies TxLINE score-validation endpoints. Judges and the frontend fetch
+ * the Merkle proof bundle used by TxOracle.validate_stat here so they can
+ * be inspected and replayed on-chain.
  *
- * GET /api/proofs/scores?fixtureId=<i64>&ts=<i64 optional>
+ * GET /api/proofs/scores?fixtureId=<i64>&seq=<i32 optional>&statKeys=<csv optional>
+ *
+ * If `seq` is omitted, we auto-fetch the latest scores update for the
+ * fixture and pick its sequence number so callers only need the fixtureId.
  */
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const fixtureId = searchParams.get("fixtureId");
-  const ts = searchParams.get("ts");
+  let seq = searchParams.get("seq");
+  const statKeys = searchParams.get("statKeys") || "1,2";
   const demo = searchParams.get("demo") === "1";
 
   if (!fixtureId) {
@@ -82,15 +86,60 @@ export async function GET(req: Request) {
         {
           error: "TxLINE API token not configured",
           hint:
-            "Run the subscribe + activate flow (see /docs) to populate TXLINE_API_TOKEN. Append ?demo=1 to preview the payload shape.",
+            "Run scripts/txline-subscribe.ts to activate. Append ?demo=1 to preview the payload shape.",
         },
         { status: 503 }
       );
     }
 
-    const qs = ts ? `?ts=${ts}` : "";
+    // If seq isn't specified, pull the latest scores update for the fixture
+    // and use its sequence number — this makes the endpoint idempotent for
+    // callers that only know fixtureId (e.g. our /admin/resolve UI).
+    if (!seq) {
+      const updatesRes = await fetch(
+        `${API_ORIGIN}/api/scores/historical/${fixtureId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${jwt}`,
+            "X-Api-Token": apiToken,
+          },
+        }
+      );
+      if (updatesRes.ok) {
+        const text = await updatesRes.text();
+        if (text.trim()) {
+          try {
+            const updates = JSON.parse(text);
+            if (Array.isArray(updates) && updates.length > 0) {
+              const last = updates[updates.length - 1];
+              if (last?.Seq !== undefined) seq = String(last.Seq);
+              else if (last?.seq !== undefined) seq = String(last.seq);
+            }
+          } catch (err) {
+            console.warn("Failed to parse historical scores JSON:", err);
+          }
+        }
+      }
+      if (!seq) {
+        return NextResponse.json(
+          {
+            error: "No score events found for fixture",
+            hint:
+              "This match likely hasn't kicked off yet, or scores haven't propagated. Append ?demo=1 to preview the proof shape, or wait for match start.",
+            fixtureId,
+          },
+          { status: 404 }
+        );
+      }
+    }
+
+    const params = new URLSearchParams({
+      fixtureId,
+      seq,
+      statKeys,
+    });
     const res = await fetch(
-      `${API_ORIGIN}/api/scores/proofs/${fixtureId}${qs}`,
+      `${API_ORIGIN}/api/scores/stat-validation?${params.toString()}`,
       {
         headers: {
           Authorization: `Bearer ${jwt}`,
@@ -107,13 +156,13 @@ export async function GET(req: Request) {
     if (!res.ok) {
       const body = await res.text();
       return NextResponse.json(
-        { error: `TxLINE proofs error: ${res.status}`, body },
+        { error: `TxLINE stat-validation error: ${res.status}`, body },
         { status: res.status }
       );
     }
 
     const data = await res.json();
-    return NextResponse.json(data);
+    return NextResponse.json({ ...data, _meta: { fixtureId, seq, statKeys } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "TxLINE API error";
     console.error("Proofs proxy error:", err);

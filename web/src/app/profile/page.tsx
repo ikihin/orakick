@@ -86,7 +86,7 @@ export default function ProfilePage() {
       return;
     }
     setProofLoading(true);
-    fetch(`/api/proofs/scores?fixtureId=${proofViewer.fixtureId}&demo=1`)
+    fetch(`/txapi/proofs/scores?fixtureId=${proofViewer.fixtureId}&demo=1`)
       .then(async (r) => {
         const body = await r.json().catch(() => ({}));
         setProofData(body);
