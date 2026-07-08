@@ -120,3 +120,11 @@ Original Orakick program (`6cZmF2R…`) already exposes `resolve_match(score_a, 
 
 ## Task 2 (Anchor CPI redeploy) — DEFERRED
 Container lacks Rust/Anchor/Solana CLI, and redeploy would rotate the program ID + require re-wiring frontend. Client-driven `validate_stat` (2 ixs per resolve tx) preserves the same on-chain trust model with a lower risk profile for the deadline. Documented as roadmap item in README.
+
+## Polish + judge-testability pass (this session)
+- Vercel-safe deploy: routes at /txapi/*, env vars documented (TXLINE_NETWORK, TXLINE_JWT, TXLINE_API_TOKEN).
+- Docs page rewritten: accurate endpoint table (proxied vs upstream), real settlement pipeline (client validate_stat + Anchor resolve/claim, no fake CPI snippet), explorer-linked contract addresses, step-by-step judge reproduction guide.
+- AI Coach label corrected: "SONNET-3.5 POWERED" → "GEMINI 2.0 POWERED" (matches actual model).
+- Removed random `poolAddon` random increment; pool numbers now come from `match.pool` on-chain field only.
+- Better USDC error UX in markets: `AccountNotInitialized user_token_account` or `insufficient` errors now trigger a Circle faucet redirect confirm().
+- `scripts/check-devnet-usdc.ts`: helper that reports SOL + USDC balance for a wallet and links to Circle faucet if empty (the hardcoded devnet USDC is Circle-managed so we can't mint ourselves).

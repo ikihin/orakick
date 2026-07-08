@@ -203,7 +203,6 @@ export default function MarketsPage() {
   useEffect(() => {
     const interval = setInterval(() => {
       setLiveDataPoints(prev => prev + 1);
-      setPoolAddon(prev => prev + Math.floor(Math.random() * 50));
     }, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -493,11 +492,15 @@ export default function MarketsPage() {
       if (logs.includes("already in use")) {
         alert("You already placed a prediction on this match. Only 1 prediction per match is allowed.");
       } else if (logs.includes("AccountNotInitialized") && logs.includes("user_token_account")) {
-        alert("You need devnet USDC in your wallet first. Get some from a devnet faucet.");
+        if (confirm("You need devnet USDC to place predictions.\n\nOpen Circle's devnet USDC faucet to grab some? (10 USDC, free, rate-limited to ~1h)")) {
+          window.open("https://faucet.circle.com/", "_blank");
+        }
       } else if (logs.includes("AccountNotInitialized")) {
         alert("Account not initialized. The match market or vault needs setup.");
       } else if (msg.includes("insufficient") || logs.includes("0x1")) {
-        alert("Insufficient USDC balance. You need devnet USDC to place predictions.");
+        if (confirm("Insufficient devnet USDC balance.\n\nOpen Circle's devnet USDC faucet to top up?")) {
+          window.open("https://faucet.circle.com/", "_blank");
+        }
       } else if (msg.includes("User rejected")) {
         alert("Transaction cancelled.");
       } else {
@@ -669,7 +672,7 @@ export default function MarketsPage() {
                               <span className="text-[9px] text-navy/40 font-mono">
                                 {new Date(match.kickoff).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </span>
-                              <span className="text-[9px] font-bold text-forest">${((match.pool + poolAddon)/1000).toFixed(1)}k</span>
+                              <span className="text-[9px] font-bold text-forest">${(match.pool/1000).toFixed(1)}k</span>
                             </div>
                             <div className="flex flex-col gap-1">
                               <div className="flex items-center justify-between">
@@ -1053,7 +1056,7 @@ export default function MarketsPage() {
                     <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center text-lg">🤖</div>
                     <div>
                       <h4 className="text-xs font-bold leading-none">AI COACH</h4>
-                      <span className="text-[8px] opacity-60 font-mono">SONNET-3.5 POWERED</span>
+                      <span className="text-[8px] opacity-60 font-mono">GEMINI 2.0 POWERED</span>
                     </div>
                   </div>
                   <div className="px-2 py-0.5 bg-white/20 rounded text-[9px] font-bold">LIVE</div>
