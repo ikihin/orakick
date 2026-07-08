@@ -21,6 +21,10 @@ export default function Navbar() {
   const [username, setUsername] = useState<string | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
 
+  // Sync per-wallet username from localStorage. localStorage is not a React
+  // state source, so this is a legitimate use of useEffect: whenever the
+  // connected wallet changes we read/clear the associated username.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     if (connected && publicKey) {
       const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);

@@ -56,7 +56,9 @@ export async function placeBetOnChain(
         systemProgram: SystemProgram.programId,
       })
       .rpc();
-    console.log("Match market created:", createTx);
+    if (process.env.NODE_ENV !== "production") {
+      console.log("Match market created:", createTx);
+    }
     await connection.confirmTransaction(createTx, "confirmed");
   }
 
@@ -112,7 +114,9 @@ export async function placeBetOnChain(
     setupTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
     const signedSetup = await wallet.signTransaction(setupTx);
     const setupSig = await connection.sendRawTransaction(signedSetup.serialize());
-    console.log("Setup tx (create ATAs):", setupSig);
+    if (process.env.NODE_ENV !== "production") {
+      console.log("Setup tx (create ATAs):", setupSig);
+    }
     await connection.confirmTransaction(setupSig, "confirmed");
   }
 

@@ -86,7 +86,9 @@ export function createOddsStream(
     try {
       const data = JSON.parse(event.data);
       onData(data);
-    } catch {}
+    } catch (err) {
+      console.error("Failed to parse TxLINE odds stream event:", err);
+    }
   };
 
   if (onError) es.onerror = onError;

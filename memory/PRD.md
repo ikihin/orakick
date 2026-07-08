@@ -43,3 +43,37 @@ Repo: https://github.com/ikihin/orakick.git
   post-refresh dedupe is consistent.
 - Replace `alert()` prompts with in-app glass toasts.
 - Optional: hero/markets background music toggle.
+
+## Code Review Fixes (this session)
+- **Empty catch blocks** now log with `console.error/warn` and context:
+  - `src/lib/txline.ts` (stream JSON parse)
+  - `src/components/AICoach.tsx` (live advice fetch)
+  - `src/app/api/ai-coach/ask/route.ts` (Gemini call + top-level)
+  - `src/app/profile/page.tsx` (Prediction decode)
+  - `src/app/markets/page.tsx` (Prediction decode, per-fixture odds, TxLINE fallback)
+- **Stable React keys** (replaced index-as-key):
+  - `profile/page.tsx` uses `pred.txSig`
+  - `markets/page.tsx` outcomes use `row.id`, chat uses generated `id`, recent
+    trades use `pred.txSig`
+  - Chat state typed and each message now has an `id`
+- **useMemo** for expensive JSX computations on profile page (`netProfit`,
+  `totalLoss`).
+- **console.log guarded** by `process.env.NODE_ENV !== "production"` in
+  `src/lib/placeBet.ts`.
+- **Hook deps**: added `wallet` to markets `fetchMyPredictions` effect;
+  Navbar's localStorage-sync effect annotated with an explicit
+  `eslint-disable-next-line react-hooks/set-state-in-effect` because
+  localStorage is not a React state source.
+
+### Intentionally deferred (from the review report)
+- **localStorage → cookies/session** for the username: the value is a
+  cosmetic per-wallet nickname, not an auth token or sensitive PII — moving
+  it to HttpOnly cookies would add a backend dependency without a real
+  security benefit. Kept in localStorage.
+- **Full refactor of `MarketsPage`** (935 lines → 5-7 components) and other
+  complexity reductions in `useOrakick.ts`, `api/ai-coach/*` fallback
+  functions: large risky refactor with no functional gain right now. Left
+  for a dedicated refactor pass.
+- **Bulk removal of `any`** in `placeBet.ts` / `WalletProvider.tsx` /
+  `useOrakick.ts`: Anchor + wallet-adapter surfaces are typed loosely
+  upstream; typing them properly is a separate cleanup task.

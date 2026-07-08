@@ -186,11 +186,13 @@ export default function MarketsPage() {
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState<"txline" | "mock">("mock");
   const [selectedMatch, setSelectedMatch] = useState<number | null>(1);
-  const [chatMessages, setChatMessages] = useState([
-    { user: "SolanaWhale", text: "Brazil looking strong tonight!", color: "text-forest" },
-    { user: "CryptoKing", text: "Odds for Draw are insane right now.", color: "text-sky-600" },
-    { user: "Orakick_Bot", text: "AI Coach just updated prediction for this match.", color: "text-purple-600 font-bold" },
-    { user: "Degen_101", text: "LFG! Just went long on Over 2.5", color: "text-golden" },
+  const [chatMessages, setChatMessages] = useState<
+    { id: string; user: string; text: string; color: string }[]
+  >([
+    { id: "seed-1", user: "SolanaWhale", text: "Brazil looking strong tonight!", color: "text-forest" },
+    { id: "seed-2", user: "CryptoKing", text: "Odds for Draw are insane right now.", color: "text-sky-600" },
+    { id: "seed-3", user: "Orakick_Bot", text: "AI Coach just updated prediction for this match.", color: "text-purple-600 font-bold" },
+    { id: "seed-4", user: "Degen_101", text: "LFG! Just went long on Over 2.5", color: "text-golden" },
   ]);
   const [chatInput, setChatInput] = useState("");
 
@@ -295,7 +297,9 @@ export default function MarketsPage() {
               status: mockStatus,
               payout: mockPayout,
             });
-          } catch {}
+          } catch (err) {
+            console.error("Failed to decode Prediction account", pubkey.toBase58(), err);
+          }
         }
         setMyPredictions(predictions);
       } catch (err) {
@@ -305,7 +309,7 @@ export default function MarketsPage() {
       }
     }
     fetchMyPredictions();
-  }, [connected, publicKey, connection]);
+  }, [connected, publicKey, connection, wallet]);
 
   useEffect(() => {
     async function fetchTxLineData() {
@@ -339,7 +343,9 @@ export default function MarketsPage() {
                   };
                 }
               }
-            } catch {}
+            } catch (err) {
+              console.warn(`Failed to load odds for fixture ${f.FixtureId}, using defaults:`, err);
+            }
 
             return {
               id: i + 1,
@@ -361,8 +367,8 @@ export default function MarketsPage() {
           setMatches(txlineMatches);
           setDataSource("txline");
         }
-      } catch {
-        // Fallback to mock data
+      } catch (err) {
+        console.warn("TxLINE fixtures unavailable, falling back to mock data:", err);
       } finally {
         setLoading(false);
       }
@@ -778,8 +784,8 @@ export default function MarketsPage() {
                           { id: "away", label: `${match.teamB} to Win`, away: true, odds: match.odds.away, cat: "Winner" },
                           { id: "over", label: `Over 2.5 Goals`, over: true, odds: 2.1, cat: "Goals" },
                           { id: "btts", label: `Both Teams to Score`, btts: true, odds: 1.85, cat: "Goals" },
-                        ].filter(row => marketFilter === "All" || row.cat === marketFilter).map((row, i) => (
-                          <div key={i} className="px-6 py-4 flex items-center justify-between hover:bg-white/20 transition-colors group/row">
+                        ].filter(row => marketFilter === "All" || row.cat === marketFilter).map((row) => (
+                          <div key={row.id} className="px-6 py-4 flex items-center justify-between hover:bg-white/20 transition-colors group/row">
                             <div className="flex flex-col">
                               <span className="text-sm font-medium text-navy">{row.label}</span>
                               <span className="text-[9px] font-bold text-navy/30 uppercase tracking-tighter">
@@ -844,8 +850,8 @@ export default function MarketsPage() {
                         <span className="text-[10px] font-normal text-forest animate-pulse">• 242 online</span>
                       </h3>
                       <div className="h-48 overflow-y-auto space-y-3 pr-2 custom-scrollbar text-xs">
-                        {chatMessages.map((msg, i) => (
-                          <div key={i} className="flex gap-2">
+                        {chatMessages.map((msg) => (
+                          <div key={msg.id} className="flex gap-2">
                             <span className={`font-bold ${msg.color}`}>{msg.user}:</span>
                             <span className="text-navy/60">{msg.text}</span>
                           </div>
@@ -860,7 +866,7 @@ export default function MarketsPage() {
                           onChange={(e) => setChatInput(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" && chatInput.trim()) {
-                              setChatMessages(prev => [...prev, { user: "You", text: chatInput, color: "text-forest" }]);
+                              setChatMessages(prev => [...prev, { id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, user: "You", text: chatInput, color: "text-forest" }]);
                               setChatInput("");
                             }
                           }}
@@ -870,7 +876,7 @@ export default function MarketsPage() {
                           disabled={!connected} 
                           onClick={() => {
                             if (chatInput.trim()) {
-                              setChatMessages(prev => [...prev, { user: "You", text: chatInput, color: "text-forest" }]);
+                              setChatMessages(prev => [...prev, { id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, user: "You", text: chatInput, color: "text-forest" }]);
                               setChatInput("");
                             }
                           }}
@@ -1086,8 +1092,8 @@ export default function MarketsPage() {
                     <span className="text-forest">LIVE</span>
                   </h3>
                   <div className="space-y-3">
-                    {myPredictions.slice(0, 3).map((pred, i) => (
-                      <div key={i} className="flex justify-between items-center border-b border-navy/5 pb-2">
+                    {myPredictions.slice(0, 3).map((pred) => (
+                      <div key={pred.txSig || `${pred.match}-${pred.predLabel}`} className="flex justify-between items-center border-b border-navy/5 pb-2">
                         <div className="flex flex-col">
                           <span className="text-[10px] font-bold text-navy truncate max-w-[100px]">{pred.match}</span>
                           <span className="text-[9px] text-forest">{pred.predLabel}</span>

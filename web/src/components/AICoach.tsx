@@ -35,7 +35,9 @@ export default function AICoach() {
         if (advice.reasoning) {
           setCoachQuote(`${f.Participant1} vs ${f.Participant2} — ${advice.reasoning}`);
         }
-      } catch {}
+      } catch (err) {
+        console.error("AICoach: failed to fetch live advice:", err);
+      }
     }
     fetchLiveAdvice();
   }, []);

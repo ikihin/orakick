@@ -84,14 +84,15 @@ Give a concise, helpful answer in 2-3 sentences. Be specific with numbers and od
         const result = await model.generateContent(prompt);
         const answer = result.response.text().trim();
         return NextResponse.json({ answer, source: "gemini" });
-      } catch {
-        // Fall through to fallback
+      } catch (err) {
+        console.error("Gemini ask-coach failed, falling back to odds analysis:", err);
       }
     }
 
     const answer = generateFallbackAnswer(question, match);
     return NextResponse.json({ answer, source: "odds-analysis" });
-  } catch {
+  } catch (err) {
+    console.error("Ask Coach route error:", err);
     return NextResponse.json({ error: "Ask Coach error" }, { status: 500 });
   }
 }

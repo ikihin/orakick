@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
@@ -24,6 +24,24 @@ export default function ProfilePage() {
   const [loadingPredictions, setLoadingPredictions] = useState(false);
 
   useEffect(() => { setMounted(true); }, []);
+
+  const netProfit = useMemo(
+    () =>
+      myPredictions.reduce(
+        (acc, p) => acc + (p.status === "Win" ? (p.payout || 0) - p.amount : 0),
+        0
+      ),
+    [myPredictions]
+  );
+
+  const totalLoss = useMemo(
+    () =>
+      myPredictions.reduce(
+        (acc, p) => acc + (p.status === "Lose" ? p.amount : 0),
+        0
+      ),
+    [myPredictions]
+  );
 
   useEffect(() => {
     if (connected && publicKey) {
@@ -80,7 +98,9 @@ export default function ProfilePage() {
               status: mockStatus,
               payout: mockPayout,
             });
-          } catch {}
+          } catch (err) {
+            console.error("Failed to decode Prediction account", pubkey.toBase58(), err);
+          }
         }
         setMyPredictions(predictions);
       } catch (err) {
@@ -148,13 +168,13 @@ export default function ProfilePage() {
                     <div className="text-center">
                       <p className="text-[10px] font-black text-navy/40 uppercase tracking-[0.2em] mb-1">Net Profit</p>
                       <p className="text-3xl font-black text-forest drop-shadow-sm">
-                        +${myPredictions.reduce((acc, p) => acc + (p.status === "Win" ? (p.payout || 0) - p.amount : 0), 0).toFixed(1)}
+                        +${netProfit.toFixed(1)}
                       </p>
                     </div>
                     <div className="text-center">
                       <p className="text-[10px] font-black text-navy/40 uppercase tracking-[0.2em] mb-1">Total Loss</p>
                       <p className="text-3xl font-black text-red-600 drop-shadow-sm">
-                        -${myPredictions.reduce((acc, p) => acc + (p.status === "Lose" ? p.amount : 0), 0).toFixed(1)}
+                        -${totalLoss.toFixed(1)}
                       </p>
                     </div>
                  </div>
@@ -173,8 +193,8 @@ export default function ProfilePage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {myPredictions.map((pred, i) => (
-                  <div key={i} className="backdrop-blur-xl bg-white/30 rounded-3xl p-6 border border-white/40 hover:scale-[1.03] hover:bg-white/40 transition-all group shadow-xl hover:shadow-2xl">
+                {myPredictions.map((pred) => (
+                  <div key={pred.txSig} className="backdrop-blur-xl bg-white/30 rounded-3xl p-6 border border-white/40 hover:scale-[1.03] hover:bg-white/40 transition-all group shadow-xl hover:shadow-2xl">
                     <div className="flex justify-between items-start mb-6">
                       <div className="space-y-1">
                         <p className="text-[10px] font-black text-navy/40 uppercase tracking-wider">{pred.match}</p>
