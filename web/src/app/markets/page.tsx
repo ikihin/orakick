@@ -106,6 +106,7 @@ type PredictionType = "winner" | "overunder" | "score";
 
 interface PredictionRecord {
   match: string;
+  matchId?: number;
   predLabel: string;
   amount: number;
   txSig: string;
@@ -468,6 +469,7 @@ export default function MarketsPage() {
       }
       const newPred: PredictionRecord = {
         match: `${selMatch?.teamA} vs ${selMatch?.teamB}`,
+        matchId: selMatch?.id,
         predLabel,
         amount: parseFloat(amount),
         txSig: tx,
@@ -984,7 +986,9 @@ export default function MarketsPage() {
                         {(() => {
                           const selMatch = matches.find((m) => m.id === selectedMatch);
                           const started = selMatch ? new Date(selMatch.kickoff).getTime() < Date.now() : false;
-                          const hasPredicted = myPredictions.some(p => p.match.includes(selMatch?.teamA || ""));
+                          const hasPredicted = myPredictions.some(
+                            (p) => p.matchId !== undefined && p.matchId === selectedMatch
+                          );
                           
                           if (started) return (
                             <div className="w-full py-3 bg-red-500/20 text-red-600 font-medium rounded-full text-center text-sm">

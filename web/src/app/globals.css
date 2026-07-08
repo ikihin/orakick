@@ -71,7 +71,51 @@ html {
 }
 
 .glass {
-  background: rgba(248, 245, 239, 0.7);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(167, 196, 138, 0.2);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: blur(22px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow:
+    0 8px 32px rgba(34, 48, 74, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.12);
+}
+
+/* Custom ball cursor globally */
+html,
+body {
+  cursor: url("/ball-cursor.svg") 16 16, auto;
+}
+a,
+button,
+[role="button"],
+input,
+textarea,
+select,
+label,
+.cursor-pointer {
+  cursor: url("/ball-cursor.svg") 16 16, pointer;
+}
+
+/* Hide default scrollbar on utility class */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(34, 48, 74, 0.15);
+  border-radius: 3px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
 }

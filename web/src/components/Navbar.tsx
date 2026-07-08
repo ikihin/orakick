@@ -26,11 +26,15 @@ export default function Navbar() {
       const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);
       if (saved) {
         setUsername(saved);
+        setShowUsernameModal(false);
       } else {
+        setUsername(null);
         setShowUsernameModal(true);
       }
     } else if (!connected) {
       setUsername(null);
+      setShowUsernameModal(false);
+      setTempUsername("");
     }
   }, [connected, publicKey]);
 
