@@ -22,6 +22,25 @@ export const TXORACLE_IDL = {
   },
   instructions: [
     {
+      name: "subscribe",
+      discriminator: [254, 28, 191, 138, 156, 179, 183, 53],
+      accounts: [
+        { name: "user", writable: true, signer: true },
+        { name: "pricing_matrix" },
+        { name: "token_mint" },
+        { name: "user_token_account", writable: true },
+        { name: "token_treasury_vault", writable: true },
+        { name: "token_treasury_pda" },
+        { name: "token_program" },
+        { name: "system_program" },
+        { name: "associated_token_program" },
+      ],
+      args: [
+        { name: "service_level_id", type: "u16" },
+        { name: "weeks", type: "u8" },
+      ],
+    },
+    {
       name: "validate_stat",
       discriminator: [107, 197, 232, 90, 191, 136, 105, 185],
       accounts: [{ name: "daily_scores_merkle_roots" }],
