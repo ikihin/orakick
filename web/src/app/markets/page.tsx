@@ -1,10 +1,20 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
 import WalletButton from "@/components/WalletButton";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 
 interface MatchData {
   id: number;
@@ -99,16 +109,114 @@ interface PredictionRecord {
   predLabel: string;
   amount: number;
   txSig: string;
+  status: "Win" | "Lose" | "Pending";
+  payout?: number;
+}
+
+// Live Probability Chart Component
+function MatchChart({ match, points }: { match: MatchData, points: number }) {
+  const data = useMemo(() => {
+    // Generate mock history points leading up to current odds
+    return Array.from({ length: points }).map((_, i) => ({
+      time: i,
+      home: Math.max(20, Math.min(80, (100 / match.odds.home) - (5 - (i % 10)))),
+      away: Math.max(20, Math.min(80, (100 / match.odds.away) - ((i % 10) - 5))),
+      draw: Math.max(10, Math.min(40, (100 / match.odds.draw) + (Math.sin(i) * 2))),
+    }));
+  }, [match, points]);
+
+  return (
+    <div className="h-64 w-full bg-white/5 rounded-2xl p-4 border border-navy/5">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" />
+          <XAxis dataKey="time" hide />
+          <YAxis domain={[0, 100]} stroke="rgba(0,0,0,0.3)" fontSize={10} />
+          <Tooltip 
+            contentStyle={{ backgroundColor: 'rgba(255,255,255,0.9)', borderRadius: '12px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+            itemStyle={{ fontSize: '10px', fontWeight: 'bold' }}
+          />
+          <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
+          <Line 
+            type="monotone" 
+            dataKey="home" 
+            name={match.teamA} 
+            stroke="#1B4332" 
+            strokeWidth={3} 
+            dot={false} 
+            activeDot={{ r: 4 }}
+          />
+          <Line 
+            type="monotone" 
+            dataKey="draw" 
+            name="Draw" 
+            stroke="#D4A373" 
+            strokeWidth={2} 
+            dot={false} 
+          />
+          <Line 
+            type="monotone" 
+            dataKey="away" 
+            name={match.teamB} 
+            stroke="#E63946" 
+            strokeWidth={3} 
+            dot={false} 
+            activeDot={{ r: 4 }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
 }
 
 export default function MarketsPage() {
   const wallet = useWallet();
-  const { connected } = wallet;
+  const { connected, publicKey, disconnect } = wallet;
   const { connection } = useConnection();
+  
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  // User Profile States
+  const [username, setUsername] = useState<string | null>(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
   const [matches, setMatches] = useState<MatchData[]>(MOCK_MATCHES);
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState<"txline" | "mock">("mock");
-  const [selectedMatch, setSelectedMatch] = useState<number | null>(null);
+  const [selectedMatch, setSelectedMatch] = useState<number | null>(1);
+  const [chatMessages, setChatMessages] = useState([
+    { user: "SolanaWhale", text: "Brazil looking strong tonight!", color: "text-forest" },
+    { user: "CryptoKing", text: "Odds for Draw are insane right now.", color: "text-sky-600" },
+    { user: "Orakick_Bot", text: "AI Coach just updated prediction for this match.", color: "text-purple-600 font-bold" },
+    { user: "Degen_101", text: "LFG! Just went long on Over 2.5", color: "text-golden" },
+  ]);
+  const [chatInput, setChatInput] = useState("");
+
+  // Simulated Live Data
+  const [liveDataPoints, setLiveDataPoints] = useState<number>(10);
+  const [poolAddon, setPoolAddon] = useState<number>(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setLiveDataPoints(prev => prev + 1);
+      setPoolAddon(prev => prev + Math.floor(Math.random() * 50));
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Trigger username modal handled by Navbar, but we keep local state for profile view
+  useEffect(() => {
+    if (connected && publicKey) {
+      const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);
+      if (saved) {
+        setUsername(saved);
+      }
+    } else {
+      setUsername(null);
+    }
+  }, [connected, publicKey]);
+
   const [predType, setPredType] = useState<PredictionType>("winner");
   const [selectedOutcome, setSelectedOutcome] = useState<string>("");
   const [amount, setAmount] = useState("");
@@ -116,6 +224,10 @@ export default function MarketsPage() {
   const [overUnderSide, setOverUnderSide] = useState<"over" | "under">("over");
   const [scoreA, setScoreA] = useState("0");
   const [scoreB, setScoreB] = useState("0");
+  const [orderSide, setOrderSide] = useState<"buy" | "sell">("buy");
+  const [marketFilter, setMarketFilter] = useState("Winner");
+  const [tournamentFilter, setTournamentFilter] = useState("All");
+  const [selectedMarketId, setSelectedMarketId] = useState<string>("home");
   const [txStatus, setTxStatus] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txSignature, setTxSignature] = useState<string>("");
   const [myPredictions, setMyPredictions] = useState<PredictionRecord[]>([]);
@@ -129,7 +241,7 @@ export default function MarketsPage() {
 
   // Fetch user's on-chain predictions
   useEffect(() => {
-    if (!connected || !wallet.publicKey) {
+    if (!connected || !publicKey) {
       setMyPredictions([]);
       return;
     }
@@ -140,6 +252,8 @@ export default function MarketsPage() {
         const { Program, AnchorProvider } = await import("@coral-xyz/anchor");
         const { IDL } = await import("@/lib/idl");
 
+        if (!connection || !publicKey) return;
+
         const PROGRAM_ID = new PublicKey("6cZmF2RJSN2KmYvCDLeiqMZvUFwasjpYY5anBhENnKPR");
         const provider = new AnchorProvider(connection, wallet as any, {});
         const program = new Program(IDL as any, provider);
@@ -149,7 +263,7 @@ export default function MarketsPage() {
         const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
           filters: [
             { memcmp: { offset: 0, bytes: Buffer.from(predictionDiscriminator).toString("base64"), encoding: "base64" } },
-            { memcmp: { offset: 8, bytes: wallet.publicKey!.toBase58() } },
+            { memcmp: { offset: 8, bytes: publicKey.toBase58() } },
           ],
         });
 
@@ -168,11 +282,17 @@ export default function MarketsPage() {
               predLabel = `Score: ${pt.correctScore.scoreA || pt.correctScore.score_a}-${pt.correctScore.scoreB || pt.correctScore.score_b}`;
             }
             const amountUsdc = (decoded.amount?.toNumber?.() || decoded.amount) / 1_000_000;
+            // Mock status for demo purposes based on address
+            const mockStatus: "Win" | "Lose" | "Pending" = (pubkey.toBase58().charCodeAt(0) % 3 === 0) ? "Win" : (pubkey.toBase58().charCodeAt(0) % 3 === 1) ? "Lose" : "Pending";
+            const mockPayout = mockStatus === "Win" ? amountUsdc * 2.1 : 0;
+            
             predictions.push({
               match: decoded.matchMarket?.toBase58?.() || decoded.match_market?.toBase58?.() || "Unknown",
               predLabel,
               amount: amountUsdc,
               txSig: "",
+              status: mockStatus,
+              payout: mockPayout,
             });
           } catch {}
         }
@@ -184,7 +304,7 @@ export default function MarketsPage() {
       }
     }
     fetchMyPredictions();
-  }, [connected, wallet.publicKey, connection]);
+  }, [connected, publicKey, connection]);
 
   useEffect(() => {
     async function fetchTxLineData() {
@@ -274,9 +394,17 @@ export default function MarketsPage() {
         },
       }),
     })
-      .then((r) => r.json())
-      .then((data) => setAiAdvice(data))
-      .catch(() => setAiAdvice(null))
+      .then((r) => {
+        if (!r.ok) return null;
+        return r.json();
+      })
+      .then((data) => {
+        if (data) setAiAdvice(data);
+      })
+      .catch((err) => {
+        console.error("AI Coach error:", err);
+        setAiAdvice(null);
+      })
       .finally(() => setAiLoading(false));
   }, [selectedMatch, matches]);
 
@@ -343,6 +471,7 @@ export default function MarketsPage() {
         predLabel,
         amount: parseFloat(amount),
         txSig: tx,
+        status: "Pending",
       };
       setMyPredictions((prev) => {
         const exists = prev.some((p) => p.txSig === tx);
@@ -369,6 +498,10 @@ export default function MarketsPage() {
     }
   }, [connected, selectedMatch, amount, matches, predType, selectedOutcome, overUnderValue, overUnderSide, scoreA, scoreB, connection, wallet]);
 
+  if (!mounted) {
+    return <div className="min-h-screen bg-cream animate-pulse" />;
+  }
+
   return (
     <div className="min-h-screen bg-cream relative">
       {/* Background image */}
@@ -382,21 +515,60 @@ export default function MarketsPage() {
       </div>
       {/* Header */}
       <header className="glass fixed top-0 left-0 right-0 z-50 relative">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-2 flex items-center justify-between">
           <a href="/" className="flex items-center">
             <Image
               src="/logo.png"
               alt="Orakick"
-              width={400}
-              height={130}
-              className="h-32 w-auto"
+              width={300}
+              height={100}
+              className="h-24 w-auto"
             />
           </a>
           <div className="flex items-center gap-4">
             <a href="/" className="text-sm text-navy/70 hover:text-forest">
               Home
             </a>
-            <WalletButton />
+            <div className="flex items-center gap-3 relative">
+              {username ? (
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowUserMenu(!showUserMenu)}
+                    className="flex items-center gap-2 bg-forest/10 border border-forest/20 px-4 py-2 rounded-full hover:bg-forest/20 transition-all group"
+                  >
+                    <div className="w-6 h-6 bg-forest rounded-full flex items-center justify-center text-[10px] text-white font-black">
+                      {username[0].toUpperCase()}
+                    </div>
+                    <span className="text-sm font-bold text-forest uppercase tracking-tight">
+                      {username}
+                    </span>
+                    <svg className={`w-3 h-3 text-forest transition-transform ${showUserMenu ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {showUserMenu && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)} />
+                      <div className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-navy/5 py-2 z-20 animate-in fade-in slide-in-from-top-2">
+                        <a href="/profile" className="block px-4 py-2 text-xs font-bold text-navy hover:bg-navy/5 transition-colors">MY PROFILE</a>
+                        <button 
+                          onClick={() => {
+                            disconnect();
+                            setShowUserMenu(false);
+                          }}
+                          className="w-full text-left px-4 py-2 text-xs font-bold text-red-500 hover:bg-red-50 transition-colors"
+                        >
+                          DISCONNECT WALLET
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <WalletButton />
+              )}
+            </div>
           </div>
         </div>
       </header>
@@ -436,9 +608,9 @@ export default function MarketsPage() {
             </div>
           </div>
         ) : (
-          <div className="grid lg:grid-cols-3 gap-8">
-            {/* Match list */}
-            <div className="lg:col-span-2 space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Sidebar Left: Match list grouped by competition */}
+            <div className="lg:col-span-3 space-y-6 max-h-[calc(100vh-200px)] overflow-y-auto pr-2 custom-scrollbar">
               {(() => {
                 const groups: Record<string, MatchData[]> = {};
                 matches.forEach((m) => {
@@ -449,450 +621,392 @@ export default function MarketsPage() {
                 const sortedKeys = Object.keys(groups).sort((a, b) =>
                   a === "World Cup" ? -1 : b === "World Cup" ? 1 : a.localeCompare(b)
                 );
-                return sortedKeys.map((comp) => (
-                  <div key={comp} className="space-y-3">
-                    <h3 className="text-sm font-bold text-navy/70 uppercase tracking-wider flex items-center gap-2">
-                      <span>{comp === "World Cup" ? "🏆" : "⚽"}</span>
-                      {comp}
-                      <span className="text-[10px] font-normal text-navy/40">({groups[comp].length})</span>
-                    </h3>
-                    {groups[comp].map((match) => {
-                      const matchStarted = new Date(match.kickoff).getTime() < Date.now();
-                      return (
-                <div
-                  key={match.id}
-                  onClick={() => setSelectedMatch(match.id)}
-                  className={`bg-white/15 backdrop-blur-md border border-white/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] rounded-2xl p-6 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-xl hover:bg-white/25 ${
-                    selectedMatch === match.id
-                      ? "ring-2 ring-forest shadow-xl bg-white/25"
-                      : ""
-                  } ${matchStarted ? "opacity-60" : ""}`}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="text-xs font-mono text-navy/40 flex items-center gap-2">
-                      {match.kickoff}
-                      {matchStarted && (
-                        <span className="text-[10px] bg-red-500/20 text-red-600 px-2 py-0.5 rounded-full font-bold">
-                          STARTED
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {match.source === "txline" && (
-                        <span className="text-[10px] bg-forest/10 text-forest px-2 py-0.5 rounded-full font-mono">
-                          TxLINE
-                        </span>
-                      )}
-                      <span className="text-xs font-mono text-forest">
-                        Pool: ${match.pool.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">{match.flagA}</span>
-                      <span className="font-bold text-navy">{match.teamA}</span>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMatch(match.id);
-                          setPredType("winner");
-                          setSelectedOutcome("home");
-                        }}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                          selectedMatch === match.id &&
-                          selectedOutcome === "home"
-                            ? "bg-forest text-cream"
-                            : "bg-navy/5 text-navy/60 hover:bg-forest/10"
-                        }`}
-                      >
-                        {match.odds.home.toFixed(2)}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMatch(match.id);
-                          setPredType("winner");
-                          setSelectedOutcome("draw");
-                        }}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                          selectedMatch === match.id &&
-                          selectedOutcome === "draw"
-                            ? "bg-forest text-cream"
-                            : "bg-navy/5 text-navy/60 hover:bg-forest/10"
-                        }`}
-                      >
-                        {match.odds.draw.toFixed(2)}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMatch(match.id);
-                          setPredType("winner");
-                          setSelectedOutcome("away");
-                        }}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                          selectedMatch === match.id &&
-                          selectedOutcome === "away"
-                            ? "bg-forest text-cream"
-                            : "bg-navy/5 text-navy/60 hover:bg-forest/10"
-                        }`}
-                      >
-                        {match.odds.away.toFixed(2)}
-                      </button>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-navy">{match.teamB}</span>
-                      <span className="text-2xl">{match.flagB}</span>
-                    </div>
-                  </div>
-                </div>
-                      );
-                    })}
-                  </div>
-                ));
-              })()}
-            </div>
-
-            {/* Bet slip + History */}
-            <div className="lg:col-span-1 space-y-4">
-              <div className="bg-white/15 backdrop-blur-md border border-white/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] rounded-2xl p-6 sticky top-28">
-                <h3 className="font-bold text-navy mb-4">Place Prediction</h3>
-
-                {!selectedMatch ? (
-                  <p className="text-sm text-navy/40">
-                    Select a match to start predicting
-                  </p>
-                ) : (
-                  <div className="space-y-4">
-                    {/* Prediction type tabs */}
-                    <div className="flex gap-1 bg-navy/5 rounded-lg p-1">
-                      {(
-                        ["winner", "overunder", "score"] as PredictionType[]
-                      ).map((type) => (
-                        <button
-                          key={type}
-                          onClick={() => setPredType(type)}
-                          className={`flex-1 text-xs py-2 rounded-md font-medium transition-colors ${
-                            predType === type
-                              ? "bg-forest text-cream"
-                              : "text-navy/50 hover:text-navy"
+                return (
+                  <div className="space-y-6">
+                    {/* Sidebar Filters */}
+                    <div className="flex gap-2 mb-4 px-2 overflow-x-auto pb-2 no-scrollbar">
+                      {["All", "Group A", "Group B", "Knockout"].map(f => (
+                        <button 
+                          key={f} 
+                          onClick={() => setTournamentFilter(f)}
+                          className={`whitespace-nowrap px-3 py-1 border rounded-lg text-[9px] font-bold transition-all ${
+                            tournamentFilter === f 
+                              ? "bg-forest text-white border-forest" 
+                              : "bg-white/50 border-navy/5 text-navy/40 hover:bg-forest/10 hover:text-forest"
                           }`}
                         >
-                          {type === "winner"
-                            ? "Winner"
-                            : type === "overunder"
-                            ? "Over/Under"
-                            : "Score"}
+                          {f}
                         </button>
                       ))}
                     </div>
-
-                    {/* Winner selection */}
-                    {predType === "winner" && (
-                      <div className="text-sm text-navy/60">
-                        Selected:{" "}
-                        <span className="font-bold text-navy">
-                          {selectedOutcome === "home"
-                            ? matches.find((m) => m.id === selectedMatch)?.teamA
-                            : selectedOutcome === "away"
-                            ? matches.find((m) => m.id === selectedMatch)?.teamB
-                            : selectedOutcome === "draw"
-                            ? "Draw"
-                            : "Pick an outcome"}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Over/Under */}
-                    {predType === "overunder" && (
-                      <div className="space-y-2">
-                        <label className="text-xs text-navy/50">
-                          Total Goals
-                        </label>
-                        <div className="flex gap-2">
-                          <select
-                            value={overUnderValue}
-                            onChange={(e) => setOverUnderValue(e.target.value)}
-                            className="flex-1 bg-navy/5 rounded-lg px-3 py-2 text-sm text-navy"
-                          >
-                            <option value="1.5">1.5</option>
-                            <option value="2.5">2.5</option>
-                            <option value="3.5">3.5</option>
-                            <option value="4.5">4.5</option>
-                          </select>
-                          <button
-                            onClick={() => setOverUnderSide("over")}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold ${
-                              overUnderSide === "over"
-                                ? "bg-forest text-cream"
-                                : "bg-navy/5 text-navy/50"
+                    {sortedKeys.filter(comp => tournamentFilter === "All" || (tournamentFilter === "Group A" && comp === "World Cup") || (tournamentFilter === "Group B" && comp === "Friendlies")).map((comp) => (
+                  <div key={comp} className={`space-y-3 p-2 rounded-2xl transition-all ${comp === "World Cup" ? "bg-forest/5 border border-forest/20 shadow-sm" : ""}`}>
+                    <h3 className={`font-bold uppercase tracking-widest px-2 ${comp === "World Cup" ? "text-forest text-[14px] mb-2" : "text-navy/40 text-[10px]"}`}>
+                      {comp === "World Cup" ? "🏆 " : ""}{comp}
+                    </h3>
+                    <div className="space-y-1">
+                      {groups[comp].map((match) => {
+                        const active = selectedMatch === match.id;
+                        return (
+                          <div
+                            key={match.id}
+                            onClick={() => setSelectedMatch(match.id)}
+                            className={`px-3 py-3 rounded-xl cursor-pointer transition-all border ${
+                              active 
+                                ? "bg-white border-forest/30 shadow-sm" 
+                                : "border-transparent hover:bg-white/40"
                             }`}
                           >
-                            Over
-                          </button>
-                          <button
-                            onClick={() => setOverUnderSide("under")}
-                            className={`px-4 py-2 rounded-lg text-xs font-bold ${
-                              overUnderSide === "under"
-                                ? "bg-forest text-cream"
-                                : "bg-navy/5 text-navy/50"
-                            }`}
-                          >
-                            Under
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Correct Score */}
-                    {predType === "score" && (
-                      <div className="space-y-2">
-                        <label className="text-xs text-navy/50">
-                          Predicted Score
-                        </label>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="number"
-                            min="0"
-                            max="10"
-                            value={scoreA}
-                            onChange={(e) => setScoreA(e.target.value)}
-                            className="w-16 bg-navy/5 rounded-lg px-3 py-2 text-center text-navy font-bold"
-                          />
-                          <span className="text-navy/40 font-bold">—</span>
-                          <input
-                            type="number"
-                            min="0"
-                            max="10"
-                            value={scoreB}
-                            onChange={(e) => setScoreB(e.target.value)}
-                            className="w-16 bg-navy/5 rounded-lg px-3 py-2 text-center text-navy font-bold"
-                          />
-                        </div>
-                      </div>
-                    )}
-
-                    {/* AI Coach */}
-                    <div className="bg-gradient-to-br from-purple-500/10 to-forest/10 border border-purple-500/20 rounded-xl p-4 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm">🤖</span>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700">AI Coach</span>
-                        {aiLoading && <span className="text-[10px] text-navy/40 animate-pulse">analyzing...</span>}
-                        {aiAdvice?.source && !aiLoading && (
-                          <span className="text-[9px] bg-purple-500/10 text-purple-600 px-1.5 py-0.5 rounded">
-                            {aiAdvice.source === "gemini" ? "Gemini AI" : "TxLINE Odds"}
-                          </span>
-                        )}
-                      </div>
-                      {aiAdvice && !aiLoading && (
-                        <>
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-navy">
-                              {aiAdvice.recommendation === "home"
-                                ? matches.find((m) => m.id === selectedMatch)?.teamA
-                                : aiAdvice.recommendation === "away"
-                                ? matches.find((m) => m.id === selectedMatch)?.teamB
-                                : "Draw"}
-                            </span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                              aiAdvice.confidence >= 50 ? "bg-forest/20 text-forest" :
-                              aiAdvice.confidence >= 35 ? "bg-yellow-500/20 text-yellow-700" :
-                              "bg-red-500/20 text-red-600"
-                            }`}>
-                              {aiAdvice.confidence}% confidence
-                            </span>
-                            <span className={`text-[10px] px-2 py-0.5 rounded-full ${
-                              aiAdvice.riskLevel === "Low" ? "bg-forest/10 text-forest" :
-                              aiAdvice.riskLevel === "Medium" ? "bg-yellow-500/10 text-yellow-700" :
-                              "bg-red-500/10 text-red-600"
-                            }`}>
-                              {aiAdvice.riskLevel} risk
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-navy/70 leading-relaxed">{aiAdvice.reasoning}</p>
-                          <p className="text-[10px] text-purple-700/80 italic">{aiAdvice.valueBet}</p>
-                        </>
-                      )}
-                      {!aiAdvice && !aiLoading && (
-                        <p className="text-[11px] text-navy/40">Select a match to get AI analysis</p>
-                      )}
-                      {/* Ask Coach */}
-                      {aiAdvice && !aiLoading && (
-                        <div className="pt-2 border-t border-purple-500/10">
-                          {!askCoachOpen ? (
-                            <button
-                              onClick={() => setAskCoachOpen(true)}
-                              className="text-[11px] text-purple-600 hover:text-purple-800 font-medium flex items-center gap-1"
-                            >
-                              💬 Ask Coach a question...
-                            </button>
-                          ) : (
-                            <div className="space-y-2">
-                              <div className="flex gap-1">
-                                <input
-                                  type="text"
-                                  value={askCoachQuestion}
-                                  onChange={(e) => setAskCoachQuestion(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter" && askCoachQuestion.trim()) {
-                                      setAskCoachLoading(true);
-                                      setAskCoachAnswer("");
-                                      const selMatch = matches.find((m) => m.id === selectedMatch);
-                                      fetch("/api/ai-coach/ask", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({
-                                          question: askCoachQuestion,
-                                          match: { teamA: selMatch?.teamA, teamB: selMatch?.teamB, odds: selMatch?.odds, kickoff: selMatch?.kickoff, competition: selMatch?.competition },
-                                        }),
-                                      })
-                                        .then((r) => r.json())
-                                        .then((d) => setAskCoachAnswer(d.answer || "No answer"))
-                                        .catch(() => setAskCoachAnswer("Failed to get answer"))
-                                        .finally(() => setAskCoachLoading(false));
-                                    }
-                                  }}
-                                  placeholder="e.g. Is Over 2.5 worth it?"
-                                  className="flex-1 text-[11px] bg-white/50 border border-purple-500/20 rounded-lg px-3 py-1.5 text-navy placeholder:text-navy/30"
-                                />
-                                <button
-                                  onClick={() => {
-                                    if (!askCoachQuestion.trim()) return;
-                                    setAskCoachLoading(true);
-                                    setAskCoachAnswer("");
-                                    const selMatch = matches.find((m) => m.id === selectedMatch);
-                                    fetch("/api/ai-coach/ask", {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({
-                                        question: askCoachQuestion,
-                                        match: { teamA: selMatch?.teamA, teamB: selMatch?.teamB, odds: selMatch?.odds, kickoff: selMatch?.kickoff, competition: selMatch?.competition },
-                                      }),
-                                    })
-                                      .then((r) => r.json())
-                                      .then((d) => setAskCoachAnswer(d.answer || "No answer"))
-                                      .catch(() => setAskCoachAnswer("Failed to get answer"))
-                                      .finally(() => setAskCoachLoading(false));
-                                  }}
-                                  disabled={askCoachLoading}
-                                  className="text-[10px] bg-purple-600 text-white px-3 py-1.5 rounded-lg hover:bg-purple-700 disabled:opacity-50"
-                                >
-                                  {askCoachLoading ? "..." : "Ask"}
-                                </button>
-                              </div>
-                              {askCoachLoading && (
-                                <p className="text-[10px] text-purple-600 animate-pulse">Thinking...</p>
-                              )}
-                              {askCoachAnswer && (
-                                <div className="bg-white/40 rounded-lg p-2">
-                                  <p className="text-[11px] text-navy/80 leading-relaxed">{askCoachAnswer}</p>
+                            <div className="flex justify-between items-center mb-1">
+                              <span className="text-[9px] text-navy/40 font-mono">
+                                {new Date(match.kickoff).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                              <span className="text-[9px] font-bold text-forest">${((match.pool + poolAddon)/1000).toFixed(1)}k</span>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-sm">{match.flagA}</span>
+                                  <span className={`text-xs font-medium ${active ? "text-navy" : "text-navy/70"}`}>{match.teamA}</span>
                                 </div>
-                              )}
-                              <div className="flex gap-2 flex-wrap">
-                                {["Is Over 2.5 safe?", "Best value bet?", "Safest pick?"].map((q) => (
-                                  <button
-                                    key={q}
-                                    onClick={() => setAskCoachQuestion(q)}
-                                    className="text-[9px] bg-purple-500/10 text-purple-600 px-2 py-1 rounded-full hover:bg-purple-500/20"
-                                  >
-                                    {q}
-                                  </button>
-                                ))}
+                                <span className="text-[10px] font-bold text-navy/30">{match.odds.home.toFixed(2)}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-sm">{match.flagB}</span>
+                                  <span className={`text-xs font-medium ${active ? "text-navy" : "text-navy/70"}`}>{match.teamB}</span>
+                                </div>
+                                <span className="text-[10px] font-bold text-navy/30">{match.odds.away.toFixed(2)}</span>
                               </div>
                             </div>
-                          )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Main Center: Match Details + Chart + Yes/No Table + Chat */}
+            <div className="lg:col-span-6 space-y-6">
+              {(() => {
+                const match = matches.find(m => m.id === selectedMatch);
+                if (!match) return (
+                  <div className="h-96 glass rounded-3xl flex items-center justify-center border border-white/30 text-navy/30 text-sm">
+                    Select a match to view analytics
+                  </div>
+                );
+                return (
+                  <div className="space-y-6">
+                    {/* Match Header */}
+                    <div className="glass rounded-3xl p-6 border border-white/30">
+                      <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-3">
+                          <span className="px-2 py-0.5 bg-forest/10 text-forest text-[10px] font-bold rounded uppercase tracking-wider">Live Market</span>
+                          <span className="text-[11px] text-navy/40">{match.competition} • {match.kickoff}</span>
                         </div>
-                      )}
-                    </div>
-
-                    {/* Amount */}
-                    <div className="space-y-2">
-                      <label className="text-xs text-navy/50">
-                        Amount (USDC)
-                      </label>
-                      <input
-                        type="number"
-                        placeholder="0.00"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                        className="w-full bg-navy/5 rounded-lg px-4 py-3 text-navy font-medium placeholder:text-navy/30"
-                      />
-                    </div>
-
-                    {/* Potential return */}
-                    {amount && selectedMatch && (
-                      <div className="bg-forest/5 rounded-lg p-3">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-navy/50">Potential Return</span>
-                          <span className="font-bold text-forest">
-                            {(
-                              parseFloat(amount) *
-                              (predType === "score"
-                                ? 8.0
-                                : predType === "overunder"
-                                ? 1.9
-                                : selectedOutcome === "home"
-                                ? matches.find((m) => m.id === selectedMatch)
-                                    ?.odds.home || 1
-                                : selectedOutcome === "away"
-                                ? matches.find((m) => m.id === selectedMatch)
-                                    ?.odds.away || 1
-                                : matches.find((m) => m.id === selectedMatch)
-                                    ?.odds.draw || 1)
-                            ).toFixed(2)}{" "}
-                            USDC
-                          </span>
+                        <div className="flex -space-x-2">
+                          {[1,2,3].map(i => (
+                            <div key={i} className="w-6 h-6 rounded-full border-2 border-cream bg-sage/20 flex items-center justify-center text-[8px] font-bold">U{i}</div>
+                          ))}
+                          <div className="w-6 h-6 rounded-full border-2 border-cream bg-navy/10 flex items-center justify-center text-[8px] font-bold">+12</div>
                         </div>
                       </div>
-                    )}
-
-                    {/* Prediction Summary */}
-                    {amount && parseFloat(amount) > 0 && (() => {
-                      const selMatch = matches.find((m) => m.id === selectedMatch);
-                      if (!selMatch) return null;
-                      let predLabel = "";
-                      if (predType === "winner") {
-                        predLabel = selectedOutcome === "home" ? `${selMatch.teamA} Win` : selectedOutcome === "away" ? `${selMatch.teamB} Win` : "Draw";
-                      } else if (predType === "overunder") {
-                        predLabel = `${overUnderSide === "over" ? "Over" : "Under"} ${overUnderValue} goals`;
-                      } else {
-                        predLabel = `Correct Score: ${scoreA} - ${scoreB}`;
-                      }
-                      return (
-                        <div className="bg-navy/5 rounded-xl p-4 space-y-2 border border-navy/10">
-                          <p className="text-[10px] uppercase tracking-wider text-navy/40 font-bold">Your Prediction</p>
-                          <div className="text-sm text-navy">
-                            <span className="font-bold">{selMatch.teamA}</span> vs <span className="font-bold">{selMatch.teamB}</span>
-                          </div>
-                          <div className="text-sm font-bold text-forest">{predLabel}</div>
-                          <div className="text-xs text-navy/60">Stake: <span className="font-bold text-navy">{amount} USDC</span></div>
+                      
+                      <div className="flex items-center justify-between px-4">
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="w-16 h-16 bg-white/50 rounded-2xl flex items-center justify-center text-4xl shadow-sm">{match.flagA}</div>
+                          <span className="font-bold text-navy">{match.teamA}</span>
                         </div>
-                      );
-                    })()}
+                        <div className="flex flex-col items-center">
+                          <span className="text-3xl font-black text-navy/20 italic">VS</span>
+                          <div className="mt-2 px-3 py-1 bg-navy/5 rounded-full text-[10px] font-bold text-navy/40 uppercase tracking-tighter">
+                            Match Odds
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="w-16 h-16 bg-white/50 rounded-2xl flex items-center justify-center text-4xl shadow-sm">{match.flagB}</div>
+                          <span className="font-bold text-navy">{match.teamB}</span>
+                        </div>
+                      </div>
+                    </div>
 
-                    {/* Submit */}
+                    {/* Chart Area */}
+                    <div className="glass rounded-3xl p-6 border border-white/30">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-bold text-navy">Win Probability</h3>
+                        <div className="flex gap-4">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-forest" />
+                            <span className="text-[10px] font-medium text-navy/50">{match.teamA}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full bg-red-500" />
+                            <span className="text-[10px] font-medium text-navy/50">{match.teamB}</span>
+                          </div>
+                        </div>
+                      </div>
+                      {mounted && <MatchChart match={match} points={liveDataPoints} />}
+                      {!mounted && <div className="h-64 w-full bg-navy/5 animate-pulse rounded-2xl" />}
+                    </div>
+
+                    {/* Yes/No Prediction Table */}
+                    <div className="glass rounded-3xl overflow-hidden border border-white/30">
+                      <div className="px-6 py-4 border-b border-navy/5 flex justify-between items-center">
+                        <h3 className="text-sm font-bold text-navy">Outcome Markets</h3>
+                        <div className="flex gap-2">
+                          {["All", "Winner", "Goals"].map(f => (
+                            <button 
+                              key={f} 
+                              onClick={() => setMarketFilter(f)}
+                              className={`text-[10px] px-3 py-1 rounded-full transition-colors ${marketFilter === f ? "bg-forest text-white" : "text-navy/40 hover:bg-navy/5"}`}
+                            >
+                              {f}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="divide-y divide-navy/5">
+                        {[
+                          { id: "home", label: `${match.teamA} to Win`, home: true, odds: match.odds.home, cat: "Winner" },
+                          { id: "draw", label: `Draw`, draw: true, odds: match.odds.draw, cat: "Winner" },
+                          { id: "away", label: `${match.teamB} to Win`, away: true, odds: match.odds.away, cat: "Winner" },
+                          { id: "over", label: `Over 2.5 Goals`, over: true, odds: 2.1, cat: "Goals" },
+                          { id: "btts", label: `Both Teams to Score`, btts: true, odds: 1.85, cat: "Goals" },
+                        ].filter(row => marketFilter === "All" || row.cat === marketFilter).map((row, i) => (
+                          <div key={i} className="px-6 py-4 flex items-center justify-between hover:bg-white/20 transition-colors group/row">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-medium text-navy">{row.label}</span>
+                              <span className="text-[9px] font-bold text-navy/30 uppercase tracking-tighter">
+                                Implied Prob: {Math.round(100/row.odds)}%
+                              </span>
+                            </div>
+                            <div className="flex gap-2">
+                              <button 
+                                onClick={() => {
+                                  setSelectedMatch(match.id);
+                                  setOrderSide("buy");
+                                  setSelectedMarketId(row.id);
+                                  // Reset other types
+                                  setScoreA("0"); setScoreB("0");
+                                  
+                                  if (row.home) { setPredType("winner"); setSelectedOutcome("home"); }
+                                  else if (row.away) { setPredType("winner"); setSelectedOutcome("away"); }
+                                  else if (row.draw) { setPredType("winner"); setSelectedOutcome("draw"); }
+                                  else if (row.over) { setPredType("overunder"); setOverUnderSide("over"); setOverUnderValue("2.5"); }
+                                  else if (row.btts) { setPredType("overunder"); setOverUnderSide("over"); setOverUnderValue("BTTS"); }
+                                }}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                                  orderSide === "buy" && selectedMarketId === row.id
+                                    ? "bg-forest text-white border-forest shadow-sm"
+                                    : "bg-forest/5 text-forest border-transparent hover:bg-forest/10"
+                                }`}
+                              >
+                                Yes {Math.round(100/row.odds)}¢
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  setSelectedMatch(match.id);
+                                  setOrderSide("sell");
+                                  setSelectedMarketId(row.id);
+                                  // Reset other types
+                                  setScoreA("0"); setScoreB("0");
+
+                                  if (row.home) { setPredType("winner"); setSelectedOutcome("home"); }
+                                  else if (row.away) { setPredType("winner"); setSelectedOutcome("away"); }
+                                  else if (row.draw) { setPredType("winner"); setSelectedOutcome("draw"); }
+                                  else if (row.over) { setPredType("overunder"); setOverUnderSide("over"); setOverUnderValue("2.5"); }
+                                  else if (row.btts) { setPredType("overunder"); setOverUnderSide("over"); setOverUnderValue("BTTS"); }
+                                }}
+                                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                                  orderSide === "sell" && selectedMarketId === row.id
+                                    ? "bg-red-500 text-white border-red-500 shadow-sm"
+                                    : "bg-navy/5 text-navy/40 border-transparent hover:bg-navy/10"
+                                }`}
+                              >
+                                No {100 - Math.round(100/row.odds)}¢
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Event Chat */}
+                    <div className="glass rounded-3xl p-6 border border-white/30 space-y-4">
+                      <h3 className="text-sm font-bold text-navy flex items-center gap-2">
+                        <span>💬</span> Event Chat
+                        <span className="text-[10px] font-normal text-forest animate-pulse">• 242 online</span>
+                      </h3>
+                      <div className="h-48 overflow-y-auto space-y-3 pr-2 custom-scrollbar text-xs">
+                        {chatMessages.map((msg, i) => (
+                          <div key={i} className="flex gap-2">
+                            <span className={`font-bold ${msg.color}`}>{msg.user}:</span>
+                            <span className="text-navy/60">{msg.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          placeholder={connected ? "Send a message..." : "Connect wallet to chat"} 
+                          disabled={!connected}
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && chatInput.trim()) {
+                              setChatMessages(prev => [...prev, { user: "You", text: chatInput, color: "text-forest" }]);
+                              setChatInput("");
+                            }
+                          }}
+                          className="flex-1 bg-white/50 border border-navy/5 rounded-xl px-4 py-2 text-xs text-navy placeholder:text-navy/30"
+                        />
+                        <button 
+                          disabled={!connected} 
+                          onClick={() => {
+                            if (chatInput.trim()) {
+                              setChatMessages(prev => [...prev, { user: "You", text: chatInput, color: "text-forest" }]);
+                              setChatInput("");
+                            }
+                          }}
+                          className="p-2 bg-forest text-white rounded-xl disabled:opacity-30"
+                        >
+                          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Sidebar Right: Buy/Sell Panel + AI Coach */}
+            <div className="lg:col-span-3 space-y-6 sticky top-28">
+              {/* Buy/Sell Panel (Trading Interface) */}
+              <div className="glass rounded-3xl p-6 border border-white/30 shadow-xl shadow-navy/5">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="font-bold text-navy">Order Panel</h3>
+                  <div className="flex bg-navy/5 p-0.5 rounded-lg">
+                    <button 
+                      onClick={() => setOrderSide("buy")}
+                      className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${orderSide === "buy" ? "bg-white shadow-sm text-navy" : "text-navy/40"}`}
+                    >
+                      BUY
+                    </button>
+                    <button 
+                      onClick={() => setOrderSide("sell")}
+                      className={`px-3 py-1 text-[10px] font-bold rounded-md transition-all ${orderSide === "sell" ? "bg-white shadow-sm text-navy" : "text-navy/40"}`}
+                    >
+                      SELL
+                    </button>
+                  </div>
+                </div>
+
+                {!selectedMatch ? (
+                  <p className="text-xs text-navy/30 py-10 text-center">Select a match to place orders</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-[10px] font-bold text-navy/40 px-1">
+                        <span>ASSET</span>
+                        <span>PRICE</span>
+                      </div>
+                      <div className="bg-forest/5 border border-forest/10 rounded-xl p-3 flex justify-between items-center">
+                        <span className="text-xs font-bold text-navy truncate max-w-[120px]">
+                          {(() => {
+                            const selMatch = matches.find(m => m.id === selectedMatch);
+                            if (selectedMarketId === "home") return selMatch?.teamA;
+                            if (selectedMarketId === "away") return selMatch?.teamB;
+                            if (selectedMarketId === "draw") return "Draw";
+                            if (selectedMarketId === "over") return "Over 2.5 Goals";
+                            if (selectedMarketId === "btts") return "BTTS";
+                            return "Select Asset";
+                          })()}
+                        </span>
+                        <span className="text-xs font-black text-forest">
+                          {(() => {
+                            const selMatch = matches.find(m => m.id === selectedMatch);
+                            let odds = 1;
+                            if (selectedMarketId === "home") odds = selMatch?.odds.home || 1;
+                            else if (selectedMarketId === "away") odds = selMatch?.odds.away || 1;
+                            else if (selectedMarketId === "draw") odds = selMatch?.odds.draw || 1;
+                            else if (selectedMarketId === "over") odds = 2.1;
+                            else if (selectedMarketId === "btts") odds = 1.85;
+                            
+                            const price = orderSide === "buy" ? Math.round(100/odds) : (100 - Math.round(100/odds));
+                            return price + "¢";
+                          })()}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center px-1">
+                        <label className="text-[10px] font-bold text-navy/40">STAKE AMOUNT</label>
+                        <span className="text-[10px] text-forest font-bold">MAX</span>
+                      </div>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          placeholder="0.00"
+                          value={amount}
+                          onChange={(e) => setAmount(e.target.value)}
+                          className="w-full bg-white/50 border border-navy/5 rounded-xl px-4 py-3 text-sm text-navy font-bold focus:ring-1 ring-forest/30 outline-none"
+                        />
+                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-navy/30">USDC</span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-2">
+                      {[10, 50, 100, 500].map(v => (
+                        <button key={v} onClick={() => setAmount(v.toString())} className="py-1.5 bg-navy/5 rounded-lg text-[10px] font-bold text-navy/40 hover:bg-navy/10">+{v}</button>
+                      ))}
+                    </div>
+
+                    <div className="pt-2 space-y-2">
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-navy/40">Potential Return</span>
+                        <span className="font-bold text-forest">
+                          {amount ? (parseFloat(amount) * 2.1).toFixed(2) : "0.00"} USDC
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-[10px]">
+                        <span className="text-navy/40">Fee (0.5%)</span>
+                        <span className="text-navy/60">0.00 USDC</span>
+                      </div>
+                    </div>
+
                     {connected ? (
                       <div className="space-y-2">
                         {(() => {
                           const selMatch = matches.find((m) => m.id === selectedMatch);
                           const started = selMatch ? new Date(selMatch.kickoff).getTime() < Date.now() : false;
-                          return started ? (
+                          const hasPredicted = myPredictions.some(p => p.match.includes(selMatch?.teamA || ""));
+                          
+                          if (started) return (
                             <div className="w-full py-3 bg-red-500/20 text-red-600 font-medium rounded-full text-center text-sm">
                               Match already started
                             </div>
-                          ) : (
+                          );
+                          
+                          if (loadingPredictions || hasPredicted) return (
+                            <div className="w-full py-3 bg-navy/10 text-navy/60 font-medium rounded-full text-center text-sm">
+                              {loadingPredictions ? "Checking existing predictions..." : "Prediction already placed"}
+                            </div>
+                          );
+
+                          return (
                             <button
                               onClick={handlePredict}
                               disabled={!amount || parseFloat(amount) <= 0 || txStatus === "pending"}
-                              className="w-full py-3 bg-forest text-cream font-medium rounded-full hover:bg-forest/90 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                              className={`w-full py-3.5 text-white font-bold rounded-2xl transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg disabled:opacity-40 ${
+                                orderSide === "buy" ? "bg-forest shadow-forest/20 hover:bg-forest/90" : "bg-red-500 shadow-red-500/20 hover:bg-red-600"
+                              }`}
                             >
-                              {txStatus === "pending" ? "Confirming..." : "Place Prediction (On-Chain)"}
+                              {txStatus === "pending" ? "Executing..." : `${orderSide === "buy" ? "PLACE BUY ORDER" : "PLACE SELL ORDER"}`}
                             </button>
                           );
                         })()}
@@ -916,53 +1030,68 @@ export default function MarketsPage() {
                         )}
                       </div>
                     ) : (
-                      <div className="text-center">
-                        <p className="text-xs text-navy/40 mb-2">
-                          Connect wallet to predict
-                        </p>
-                        <WalletButton />
-                      </div>
+                      <div className="pt-2"><WalletButton /></div>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* My Predictions History */}
-              {connected && (
-                <div className="bg-white/15 backdrop-blur-md border border-white/30 shadow-[inset_0_1px_0_rgba(255,255,255,0.4)] rounded-2xl p-6">
-                  <h3 className="font-bold text-navy mb-3 flex items-center gap-2">
-                    My Predictions
-                    {myPredictions.length > 0 && (
-                      <span className="text-[10px] bg-forest/10 text-forest px-2 py-0.5 rounded-full">{myPredictions.length}</span>
-                    )}
-                  </h3>
-                  {loadingPredictions ? (
-                    <p className="text-xs text-navy/40 text-center py-4">Loading predictions...</p>
-                  ) : myPredictions.length === 0 ? (
-                    <p className="text-xs text-navy/40 text-center py-4">No predictions yet. Pick a match and place your first bet!</p>
-                  ) : (
-                    <div className="space-y-3 max-h-80 overflow-y-auto">
-                      {myPredictions.map((pred, i) => (
-                        <div key={i} className="bg-navy/5 rounded-lg p-3 space-y-1">
-                          <div className="text-xs font-bold text-navy">{pred.match}</div>
-                          <div className="text-xs text-forest font-medium">{pred.predLabel}</div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] text-navy/50">{pred.amount} USDC</span>
-                            {pred.txSig && (
-                              <a
-                                href={`https://explorer.solana.com/tx/${pred.txSig}?cluster=devnet`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-[10px] text-forest/70 underline"
-                              >
-                                View tx
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+              {/* AI Coach Sidebar Widget */}
+              <div className="bg-gradient-to-br from-purple-600 to-indigo-700 rounded-3xl p-6 text-white shadow-xl shadow-purple-900/10 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center text-lg">🤖</div>
+                    <div>
+                      <h4 className="text-xs font-bold leading-none">AI COACH</h4>
+                      <span className="text-[8px] opacity-60 font-mono">SONNET-3.5 POWERED</span>
                     </div>
-                  )}
+                  </div>
+                  <div className="px-2 py-0.5 bg-white/20 rounded text-[9px] font-bold">LIVE</div>
+                </div>
+
+                {aiAdvice && !aiLoading ? (
+                  <div className="space-y-3">
+                    <p className="text-[11px] leading-relaxed opacity-90 italic">
+                      "Looking at the last 5 meetings, {matches.find(m => m.id === selectedMatch)?.teamA} tends to dominate late game. Value is in the Over market."
+                    </p>
+                    <div className="bg-white/10 rounded-xl p-3">
+                      <div className="text-[9px] font-bold opacity-60 uppercase mb-1">Top Pick</div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs font-bold">{matches.find(m => m.id === selectedMatch)?.teamA} Win</span>
+                        <span className="text-xs font-black text-green-300">68%</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] opacity-60 py-4">Waiting for match selection to generate insights...</p>
+                )}
+
+                <button 
+                  onClick={() => setAskCoachOpen(true)}
+                  className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-bold transition-all border border-white/10"
+                >
+                  OPEN ANALYSIS TOOL
+                </button>
+              </div>
+              
+              {/* My Predictions History (Compact) */}
+              {connected && myPredictions.length > 0 && (
+                <div className="glass rounded-3xl p-6 border border-white/30">
+                  <h3 className="text-xs font-bold text-navy mb-4 flex justify-between">
+                    RECENT TRADES
+                    <span className="text-forest">LIVE</span>
+                  </h3>
+                  <div className="space-y-3">
+                    {myPredictions.slice(0, 3).map((pred, i) => (
+                      <div key={i} className="flex justify-between items-center border-b border-navy/5 pb-2">
+                        <div className="flex flex-col">
+                          <span className="text-[10px] font-bold text-navy truncate max-w-[100px]">{pred.match}</span>
+                          <span className="text-[9px] text-forest">{pred.predLabel}</span>
+                        </div>
+                        <span className="text-[10px] font-black text-navy">{pred.amount}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

@@ -1,15 +1,35 @@
 import Image from "next/image";
 
 const footerLinks = {
-  Company: ["About", "Blog", "Careers", "Press"],
-  Products: ["Predictions", "AI Coach", "Leaderboard", "API"],
-  Markets: ["World Cup 2026", "Champions League", "Premier League", "La Liga"],
-  Support: ["Documentation", "Discord", "Telegram", "Contact"],
+  Company: [
+    { label: "About", href: "#" },
+    { label: "Blog", href: "#" },
+    { label: "Careers", href: "#" },
+    { label: "Press", href: "#" },
+  ],
+  Products: [
+    { label: "Predictions", href: "/markets" },
+    { label: "AI Coach", href: "/#ai-coach" },
+    { label: "Leaderboard", href: "#" },
+    { label: "API", href: "#" },
+  ],
+  Markets: [
+    { label: "World Cup 2026", href: "/markets" },
+    { label: "Champions League", href: "#" },
+    { label: "Premier League", href: "#" },
+    { label: "La Liga", href: "#" },
+  ],
+  Support: [
+    { label: "Documentation", href: "/docs" },
+    { label: "Discord", href: "#" },
+    { label: "Telegram", href: "#" },
+    { label: "Contact", href: "#" },
+  ],
 };
 
 export default function Footer() {
   return (
-    <footer className="relative bg-navy text-cream/80">
+    <footer className="relative bg-navy text-cream/80 overflow-hidden">
       {/* Background image */}
       <div className="absolute inset-0 z-0">
         <img
@@ -17,14 +37,14 @@ export default function Footer() {
           alt=""
           className="absolute inset-0 w-full h-full object-cover"
         />
-        <div className="absolute inset-0 bg-navy/70" />
+        <div className="absolute inset-0 bg-navy/80 backdrop-blur-sm" />
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-16 relative z-10">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-8 mb-12">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1 space-y-4">
-            <Image src="/logo.png" alt="Orakick" width={240} height={80} className="h-20 w-auto brightness-200" />
+            <Image src="/logo.png" alt="Orakick" width={300} height={100} className="h-24 w-auto brightness-200" />
             <p className="text-sm text-cream/40 leading-relaxed max-w-xs">
               AI-powered World Cup predictions with on-chain settlement on Solana.
             </p>
@@ -38,12 +58,12 @@ export default function Footer() {
               </h4>
               <ul className="space-y-2.5">
                 {links.map((link) => (
-                  <li key={link}>
+                  <li key={link.label}>
                     <a
-                      href="#"
+                      href={link.href}
                       className="text-sm text-cream/40 hover:text-cream transition-colors"
                     >
-                      {link}
+                      {link.label}
                     </a>
                   </li>
                 ))}
