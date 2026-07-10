@@ -6,6 +6,7 @@ import WalletButton from "@/components/WalletButton";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
 import { supabase } from "@/lib/supabase";
+import confetti from "canvas-confetti";
 import {
   LineChart,
   Line,
@@ -599,6 +600,14 @@ export default function MarketsPage() {
       );
       setTxSignature(tx);
       setTxStatus("success");
+      
+      // 🎉 SUCCESS CELEBRATION!
+      confetti({
+        particleCount: 150,
+        spread: 70,
+        origin: { y: 0.6 },
+        colors: ["#1B4332", "#2D6A4F", "#FFD700"] // Orakick colors
+      });
 
       // Save prediction to history immediately (local state)
       const selMatch = matches.find((m) => m.id === selectedMatch);
