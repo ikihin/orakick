@@ -252,7 +252,38 @@ export default function MarketsPage() {
   const [txStatus, setTxStatus] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txSignature, setTxSignature] = useState<string>("");
   const [myPredictions, setMyPredictions] = useState<PredictionRecord[]>([]);
+  const [globalPredictions, setGlobalPredictions] = useState<any[]>([]);
   const [loadingPredictions, setLoadingPredictions] = useState(false);
+
+  // Subscribe to Global Predictions (Realtime)
+  useEffect(() => {
+    // Initial fetch for global feed
+    const fetchGlobal = async () => {
+      const { data } = await supabase
+        .from("predictions")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(10);
+      if (data) setGlobalPredictions(data);
+    };
+    fetchGlobal();
+
+    // Live subscription
+    const channel = supabase
+      .channel("global-predictions")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "predictions" },
+        (payload) => {
+          setGlobalPredictions((prev) => [payload.new, ...prev.slice(0, 9)]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
   const [aiAdvice, setAiAdvice] = useState<any>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [askCoachOpen, setAskCoachOpen] = useState(false);
@@ -1226,19 +1257,49 @@ export default function MarketsPage() {
                 </button>
               </div>
               
+              {/* Global Activity Feed */}
+              <div className="glass rounded-3xl p-6 border border-white/30 space-y-4">
+                <h3 className="text-xs font-bold text-navy flex justify-between items-center">
+                  GLOBAL ACTIVITY
+                  <span className="flex items-center gap-1.5 text-[10px] text-forest">
+                    <span className="w-1.5 h-1.5 bg-forest rounded-full animate-pulse" />
+                    LIVE
+                  </span>
+                </h3>
+                <div className="space-y-3">
+                  {globalPredictions.length > 0 ? globalPredictions.map((pred, i) => (
+                    <div key={pred.id || i} className="flex justify-between items-center border-b border-navy/5 pb-2 animate-in fade-in slide-in-from-right duration-500">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-bold text-navy truncate max-w-[120px]">{pred.match_name}</span>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[8px] text-navy/40 font-mono">
+                            {pred.user_wallet.slice(0, 4)}...{pred.user_wallet.slice(-4)}
+                          </span>
+                          <span className="text-[9px] text-forest font-bold uppercase">{pred.prediction_label}</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[11px] font-black text-navy">{pred.amount} USDC</span>
+                      </div>
+                    </div>
+                  )) : (
+                    <p className="text-[10px] text-navy/30 text-center py-4 italic">Waiting for new predictions...</p>
+                  )}
+                </div>
+              </div>
+
               {/* My Predictions History (Compact) */}
               {connected && myPredictions.length > 0 && (
-                <div className="glass rounded-3xl p-6 border border-white/30">
-                  <h3 className="text-xs font-bold text-navy mb-4 flex justify-between">
-                    RECENT TRADES
-                    <span className="text-forest">LIVE</span>
+                <div className="glass rounded-3xl p-6 border border-white/30 bg-forest/5">
+                  <h3 className="text-xs font-bold text-navy mb-4">
+                    MY RECENT TRADES
                   </h3>
                   <div className="space-y-3">
-                    {myPredictions.slice(0, 3).map((pred) => (
-                      <div key={pred.txSig || `${pred.match}-${pred.predLabel}`} className="flex justify-between items-center border-b border-navy/5 pb-2">
+                    {myPredictions.slice(0, 5).map((pred) => (
+                      <div key={pred.txSig || `${pred.match}-${pred.predLabel}`} className="flex justify-between items-center border-b border-white/20 pb-2">
                         <div className="flex flex-col">
-                          <span className="text-[10px] font-bold text-navy truncate max-w-[100px]">{pred.match}</span>
-                          <span className="text-[9px] text-forest">{pred.predLabel}</span>
+                          <span className="text-[10px] font-bold text-navy truncate max-w-[120px]">{pred.match}</span>
+                          <span className="text-[9px] text-forest font-medium">{pred.predLabel}</span>
                         </div>
                         <span className="text-[10px] font-black text-navy">{pred.amount}</span>
                       </div>
