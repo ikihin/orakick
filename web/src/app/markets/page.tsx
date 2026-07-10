@@ -1279,6 +1279,8 @@ export default function MarketsPage() {
                 <button 
                   onClick={() => setAskCoachOpen(true)}
                   className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-bold transition-all border border-white/10"
+                >
+                  OPEN ANALYSIS TOOL
                 </button>
               </div>
 
