@@ -636,7 +636,7 @@ export default function MarketsPage() {
       // SYNC TO SUPABASE
       try {
         await supabase.from("predictions").insert({
-          user_wallet: publicKey.toBase58(),
+          user_wallet: publicKey!.toBase58(),
           match_name: newPred.match,
           market_pubkey: newPred.matchMarketPubkey,
           prediction_label: newPred.predLabel,
