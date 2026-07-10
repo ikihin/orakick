@@ -28,6 +28,7 @@ interface MatchData {
   odds: { home: number; draw: number; away: number };
   source: "txline" | "mock";
   competition: string;
+  marketPubkey?: string;
 }
 
 const FLAG_MAP: Record<string, string> = {
@@ -112,6 +113,7 @@ interface PredictionRecord {
   txSig: string;
   status: "Win" | "Lose" | "Pending";
   payout?: number;
+  matchMarketPubkey?: string;
 }
 
 // Live Probability Chart Component
@@ -251,7 +253,7 @@ export default function MarketsPage() {
       setLoadingPredictions(true);
       try {
         const { PublicKey } = await import("@solana/web3.js");
-        const { Program, AnchorProvider } = await import("@coral-xyz/anchor");
+        const { Program, AnchorProvider, BN } = await import("@coral-xyz/anchor");
         const { IDL } = await import("@/lib/idl");
 
         if (!connection || !publicKey) return;
@@ -259,6 +261,17 @@ export default function MarketsPage() {
         const PROGRAM_ID = new PublicKey("6cZmF2RJSN2KmYvCDLeiqMZvUFwasjpYY5anBhENnKPR");
         const provider = new AnchorProvider(connection, wallet as any, {});
         const program = new Program(IDL as any, provider);
+
+        // Pre-derive PDAs for current matches to map back from on-chain data
+        const matchPdaMap: Record<string, { name: string, id: number }> = {};
+        matches.forEach(m => {
+          const onChainMatchId = m.fixtureId || m.id;
+          const [pda] = PublicKey.findProgramAddressSync(
+            [Buffer.from("match_market"), new BN(onChainMatchId).toArrayLike(Buffer, "le", 8)],
+            PROGRAM_ID
+          );
+          matchPdaMap[pda.toBase58()] = { name: `${m.teamA} vs ${m.teamB}`, id: m.id };
+        });
 
         // Fetch all Prediction accounts owned by this user using getProgramAccounts
         const predictionDiscriminator = Buffer.from([98, 127, 141, 187, 218, 33, 8, 14]);
@@ -284,17 +297,24 @@ export default function MarketsPage() {
               predLabel = `Score: ${pt.correctScore.scoreA || pt.correctScore.score_a}-${pt.correctScore.scoreB || pt.correctScore.score_b}`;
             }
             const amountUsdc = (decoded.amount?.toNumber?.() || decoded.amount) / 1_000_000;
+            const mmPubkey = (decoded.matchMarket || decoded.match_market).toBase58();
+            const mappedMatch = matchPdaMap[mmPubkey];
+            const matchName = mappedMatch ? mappedMatch.name : `Match ${mmPubkey.slice(0, 4)}`;
+            const matchId = mappedMatch ? mappedMatch.id : undefined;
+
             // Mock status for demo purposes based on address
             const mockStatus: "Win" | "Lose" | "Pending" = (pubkey.toBase58().charCodeAt(0) % 3 === 0) ? "Win" : (pubkey.toBase58().charCodeAt(0) % 3 === 1) ? "Lose" : "Pending";
             const mockPayout = mockStatus === "Win" ? amountUsdc * 2.1 : 0;
             
             predictions.push({
-              match: decoded.matchMarket?.toBase58?.() || decoded.match_market?.toBase58?.() || "Unknown",
+              match: matchName,
+              matchId,
               predLabel,
               amount: amountUsdc,
               txSig: "",
               status: mockStatus,
               payout: mockPayout,
+              matchMarketPubkey: mmPubkey,
             });
           } catch (err) {
             console.error("Failed to decode Prediction account", pubkey.toBase58(), err);
@@ -308,7 +328,7 @@ export default function MarketsPage() {
       }
     }
     fetchMyPredictions();
-  }, [connected, publicKey, connection, wallet]);
+  }, [connected, publicKey, connection, matches, wallet]);
 
   useEffect(() => {
     async function fetchTxLineData() {
@@ -450,6 +470,15 @@ export default function MarketsPage() {
       const { placeBetOnChain } = await import("@/lib/placeBet");
       const onChainMatchId = match.fixtureId || match.id;
       const kickoffEpoch = Math.floor(new Date(match.kickoff).getTime() / 1000);
+      
+      const { PublicKey } = await import("@solana/web3.js");
+      const { BN } = await import("@coral-xyz/anchor");
+      const PROGRAM_ID = new PublicKey("6cZmF2RJSN2KmYvCDLeiqMZvUFwasjpYY5anBhENnKPR");
+      const [matchMarket] = PublicKey.findProgramAddressSync(
+        [Buffer.from("match_market"), new BN(onChainMatchId).toArrayLike(Buffer, "le", 8)],
+        PROGRAM_ID
+      );
+
       const tx = await placeBetOnChain(
         connection,
         wallet,
@@ -479,6 +508,7 @@ export default function MarketsPage() {
         amount: parseFloat(amount),
         txSig: tx,
         status: "Pending",
+        matchMarketPubkey: matchMarket.toBase58(),
       };
       setMyPredictions((prev) => {
         const exists = prev.some((p) => p.txSig === tx);
@@ -995,9 +1025,7 @@ export default function MarketsPage() {
                         {(() => {
                           const selMatch = matches.find((m) => m.id === selectedMatch);
                           const started = selMatch ? new Date(selMatch.kickoff).getTime() < Date.now() : false;
-                          const hasPredicted = myPredictions.some(
-                            (p) => p.matchId !== undefined && p.matchId === selectedMatch
-                          );
+                          const hasPredicted = myPredictions.some(p => p.matchMarketPubkey === selMatch?.marketPubkey);
                           
                           if (started) return (
                             <div className="w-full py-3 bg-red-500/20 text-red-600 font-medium rounded-full text-center text-sm">
@@ -1055,25 +1083,43 @@ export default function MarketsPage() {
                   <div className="flex items-center gap-2">
                     <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center text-lg">🤖</div>
                     <div>
-                      <h4 className="text-xs font-bold leading-none">AI COACH</h4>
-                      <span className="text-[8px] opacity-60 font-mono">GEMINI 2.0 POWERED</span>
+                      <h4 className="text-xs font-bold leading-none uppercase">AI Coach</h4>
+                      <span className="text-[8px] opacity-60 font-mono uppercase">{userAiProvider} Powered</span>
                     </div>
                   </div>
-                  <div className="px-2 py-0.5 bg-white/20 rounded text-[9px] font-bold">LIVE</div>
+                  <button 
+                    onClick={() => setShowAiSettings(true)}
+                    className="p-1.5 hover:bg-white/10 rounded-lg transition-colors"
+                    title="AI Settings"
+                  >
+                    ⚙️
+                  </button>
                 </div>
 
                 {aiAdvice && !aiLoading ? (
                   <div className="space-y-3">
                     <p className="text-[11px] leading-relaxed opacity-90 italic">
-                      "Looking at the last 5 meetings, {matches.find(m => m.id === selectedMatch)?.teamA} tends to dominate late game. Value is in the Over market."
+                      &ldquo;{aiAdvice.reasoning}&rdquo;
                     </p>
                     <div className="bg-white/10 rounded-xl p-3">
                       <div className="text-[9px] font-bold opacity-60 uppercase mb-1">Top Pick</div>
                       <div className="flex justify-between items-center">
-                        <span className="text-xs font-bold">{matches.find(m => m.id === selectedMatch)?.teamA} Win</span>
-                        <span className="text-xs font-black text-green-300">68%</span>
+                        <span className="text-xs font-bold">
+                          {(() => {
+                            const match = matches.find(m => m.id === selectedMatch);
+                            if (aiAdvice.recommendation === "home") return `${match?.teamA} Win`;
+                            if (aiAdvice.recommendation === "away") return `${match?.teamB} Win`;
+                            return "Draw";
+                          })()}
+                        </span>
+                        <span className="text-xs font-black text-green-300">{aiAdvice.confidence}%</span>
                       </div>
                     </div>
+                    {aiAdvice.valueBet && (
+                      <div className="text-[9px] opacity-70 border-t border-white/10 pt-2">
+                        💡 {aiAdvice.valueBet}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <p className="text-[11px] opacity-60 py-4">Waiting for match selection to generate insights...</p>
@@ -1111,6 +1157,119 @@ export default function MarketsPage() {
           </div>
         )}
       </main>
+
+      {/* AI Settings Modal */}
+      {showAiSettings && (
+        <div className="fixed inset-0 bg-navy/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-bold text-navy">AI Settings</h3>
+              <button onClick={() => setShowAiSettings(false)} className="text-navy/40 hover:text-navy">✕</button>
+            </div>
+            <p className="text-xs text-navy/60 leading-relaxed">
+              Use your own API keys for the AI Coach. Your keys are stored locally in your browser and never saved on our servers.
+            </p>
+            
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-navy/40 uppercase">Provider</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {["gemini", "openai"].map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setUserAiProvider(p as any)}
+                      className={`py-2 rounded-xl text-xs font-bold border transition-all ${
+                        userAiProvider === p ? "bg-forest text-white border-forest shadow-lg" : "bg-white text-navy/40 border-navy/10 hover:border-navy/20"
+                      }`}
+                    >
+                      {p.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-navy/40 uppercase">API Key</label>
+                <input
+                  type="password"
+                  placeholder={`Enter your ${userAiProvider} key`}
+                  value={userAiKey}
+                  onChange={(e) => setUserAiKey(e.target.value)}
+                  className="w-full bg-navy/5 border border-navy/5 rounded-xl px-4 py-3 text-xs text-navy focus:ring-1 ring-forest/30 outline-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-navy/40 uppercase">Model (Optional)</label>
+                <input
+                  type="text"
+                  placeholder={userAiProvider === "gemini" ? "gemini-2.0-flash-lite" : "gpt-4o-mini"}
+                  value={userAiModel}
+                  onChange={(e) => setUserAiModel(e.target.value)}
+                  className="w-full bg-navy/5 border border-navy/5 rounded-xl px-4 py-3 text-xs text-navy focus:ring-1 ring-forest/30 outline-none"
+                />
+              </div>
+            </div>
+
+            <button
+              onClick={saveAiSettings}
+              className="w-full py-4 bg-forest text-white font-bold rounded-2xl shadow-lg shadow-forest/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            >
+              SAVE SETTINGS
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Ask Coach Modal */}
+      {askCoachOpen && (
+        <div className="fixed inset-0 bg-navy/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl p-8 max-w-lg w-full shadow-2xl space-y-6">
+            <div className="flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">🤖</span>
+                <h3 className="text-xl font-bold text-navy">Ask Coach</h3>
+              </div>
+              <button onClick={() => setAskCoachOpen(false)} className="text-navy/40 hover:text-navy">✕</button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-navy/5 rounded-2xl p-4 min-h-[100px] text-sm text-navy/80 leading-relaxed italic">
+                {askCoachLoading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-forest rounded-full animate-bounce"></div>
+                    <div className="w-2 h-2 bg-forest rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                    <div className="w-2 h-2 bg-forest rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                    <span className="text-xs font-bold text-forest ml-2 uppercase tracking-widest">Analysing...</span>
+                  </div>
+                ) : askCoachAnswer || "Ask me anything about this match. For example: \"Is Over 2.5 goals safe?\" or \"Who is likely to score first?\""}
+              </div>
+
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Type your question..."
+                  value={askCoachQuestion}
+                  onChange={(e) => setAskCoachQuestion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && askCoachQuestion.trim() && !askCoachLoading) {
+                      handleAskCoach();
+                    }
+                  }}
+                  className="w-full bg-white border border-navy/10 rounded-2xl px-5 py-4 text-sm text-navy outline-none focus:ring-2 ring-purple-500/20 pr-16"
+                />
+                <button
+                  disabled={!askCoachQuestion.trim() || askCoachLoading}
+                  onClick={handleAskCoach}
+                  className="absolute right-2 top-2 bottom-2 px-4 bg-purple-600 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-600/20 disabled:opacity-50"
+                >
+                  SEND
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
