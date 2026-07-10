@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { supabase } from "@/lib/supabase";
 import Footer from "@/components/Footer";
 import { PublicKey } from "@solana/web3.js";
 import { claimWinningsOnChain } from "@/lib/claimWinnings";
@@ -116,10 +117,30 @@ export default function ProfilePage() {
   );
 
   useEffect(() => {
-    if (connected && publicKey) {
-      const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);
-      setUsername(saved);
+    async function fetchProfile() {
+      if (connected && publicKey) {
+        try {
+          const { data } = await supabase
+            .from("profiles")
+            .select("username")
+            .eq("wallet_address", publicKey.toBase58())
+            .single();
+          
+          if (data?.username) {
+            setUsername(data.username);
+          } else {
+            const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);
+            if (saved) setUsername(saved);
+          }
+        } catch {
+          const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);
+          if (saved) setUsername(saved);
+        }
+      } else {
+        setUsername(null);
+      }
     }
+    fetchProfile();
   }, [connected, publicKey]);
 
   useEffect(() => {

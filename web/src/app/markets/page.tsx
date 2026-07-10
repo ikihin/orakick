@@ -5,6 +5,7 @@ import Image from "next/image";
 import WalletButton from "@/components/WalletButton";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
+import { supabase } from "@/lib/supabase";
 import {
   LineChart,
   Line,
@@ -211,14 +212,30 @@ export default function MarketsPage() {
 
   // Trigger username modal handled by Navbar, but we keep local state for profile view
   useEffect(() => {
-    if (connected && publicKey) {
-      const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);
-      if (saved) {
-        setUsername(saved);
+    async function fetchProfile() {
+      if (connected && publicKey) {
+        try {
+          const { data } = await supabase
+            .from("profiles")
+            .select("username")
+            .eq("wallet_address", publicKey.toBase58())
+            .single();
+          
+          if (data?.username) {
+            setUsername(data.username);
+          } else {
+            const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);
+            if (saved) setUsername(saved);
+          }
+        } catch {
+          const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);
+          if (saved) setUsername(saved);
+        }
+      } else {
+        setUsername(null);
       }
-    } else {
-      setUsername(null);
     }
+    fetchProfile();
   }, [connected, publicKey]);
 
   const [predType, setPredType] = useState<PredictionType>("winner");

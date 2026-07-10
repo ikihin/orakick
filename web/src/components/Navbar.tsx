@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Image from "next/image";
 import WalletButton from "./WalletButton";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { supabase } from "@/lib/supabase";
 
 const navLinks = [
   { label: "Home", href: "/" },
@@ -20,27 +21,73 @@ export default function Navbar() {
   const [tempUsername, setTempUsername] = useState("");
   const [username, setUsername] = useState<string | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [loadingProfile, setLoadingProfile] = useState(false);
 
-  // Sync per-wallet username from localStorage. localStorage is not a React
-  // state source, so this is a legitimate use of useEffect: whenever the
-  // connected wallet changes we read/clear the associated username.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
+  // Sync per-wallet username from Supabase
   useEffect(() => {
-    if (connected && publicKey) {
-      const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);
-      if (saved) {
-        setUsername(saved);
-        setShowUsernameModal(false);
-      } else {
+    async function checkProfile() {
+      if (connected && publicKey) {
+        setLoadingProfile(true);
+        try {
+          const { data, error } = await supabase
+            .from("profiles")
+            .select("username")
+            .eq("wallet_address", publicKey.toBase58())
+            .single();
+
+          if (data && data.username) {
+            setUsername(data.username);
+            setShowUsernameModal(false);
+          } else {
+            setUsername(null);
+            setShowUsernameModal(true);
+          }
+        } catch (err) {
+          console.error("Error fetching profile:", err);
+          // Fallback to local storage if Supabase fails
+          const saved = localStorage.getItem(`orakick_user_${publicKey.toBase58()}`);
+          if (saved) {
+            setUsername(saved);
+            setShowUsernameModal(false);
+          } else {
+            setShowUsernameModal(true);
+          }
+        } finally {
+          setLoadingProfile(false);
+        }
+      } else if (!connected) {
         setUsername(null);
-        setShowUsernameModal(true);
+        setShowUsernameModal(false);
+        setTempUsername("");
       }
-    } else if (!connected) {
-      setUsername(null);
-      setShowUsernameModal(false);
-      setTempUsername("");
     }
+    checkProfile();
   }, [connected, publicKey]);
+
+  const handleSaveUsername = async () => {
+    if (tempUsername.trim() && publicKey) {
+      try {
+        const walletAddr = publicKey.toBase58();
+        const { error } = await supabase
+          .from("profiles")
+          .upsert({ 
+            wallet_address: walletAddr, 
+            username: tempUsername.trim(),
+            updated_at: new Date().toISOString()
+          });
+
+        if (error) throw error;
+
+        setUsername(tempUsername.trim());
+        localStorage.setItem(`orakick_user_${walletAddr}`, tempUsername.trim());
+        setShowUsernameModal(false);
+        window.location.reload(); 
+      } catch (err) {
+        console.error("Error saving username:", err);
+        alert("Failed to save username to database. Please try again.");
+      }
+    }
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 glass">
@@ -167,20 +214,16 @@ export default function Navbar() {
                   className="w-full bg-navy/5 border border-navy/10 rounded-2xl px-6 py-4 text-navy font-bold focus:ring-2 ring-forest/30 outline-none text-center"
                 />
                 <button 
-                  onClick={() => {
-                    if (tempUsername.trim() && publicKey) {
-                      setUsername(tempUsername);
-                      localStorage.setItem(`orakick_user_${publicKey.toBase58()}`, tempUsername);
-                      setShowUsernameModal(false);
-                      // Trigger a page refresh to update all components using this state if necessary, 
-                      // or use a global state manager/context in a real app.
-                      window.location.reload(); 
-                    }
-                  }}
-                  disabled={!tempUsername.trim()}
-                  className="w-full py-4 bg-forest text-white font-bold rounded-2xl hover:bg-forest/90 transition-all shadow-xl shadow-forest/20 disabled:opacity-30"
+                  onClick={handleSaveUsername}
+                  disabled={!tempUsername.trim() || loadingProfile}
+                  className="w-full py-4 bg-forest text-white font-bold rounded-2xl hover:bg-forest/90 transition-all shadow-xl shadow-forest/20 disabled:opacity-30 flex items-center justify-center gap-2"
                 >
-                  START PREDICTING
+                  {loadingProfile ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      SAVING...
+                    </>
+                  ) : "START PREDICTING"}
                 </button>
               </div>
             </div>
