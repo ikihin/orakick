@@ -336,41 +336,33 @@ export default function MarketsPage() {
       return;
     }
     async function fetchMyPredictions() {
-      if (!publicKey) return;
+      if (!publicKey || !connection) return;
       setLoadingPredictions(true);
       try {
-        // 1. TRY SUPABASE FIRST (Fast & Reliable)
-        const { data: dbData, error: dbError } = await supabase
-          .from("predictions")
-          .select("*")
-          .eq("user_wallet", publicKey.toBase58())
-          .order("created_at", { ascending: false });
-
-        if (dbData && dbData.length > 0) {
-          const predictions: PredictionRecord[] = dbData.map(d => ({
-            match: d.match_name,
-            predLabel: d.prediction_label,
-            amount: d.amount,
-            txSig: d.tx_sig || "",
-            status: d.status as any,
-            matchMarketPubkey: d.market_pubkey,
-            payout: d.payout
-          }));
-          setMyPredictions(predictions);
-          setLoadingPredictions(false);
-          return; // Success, no need to fetch from chain
-        }
-
-        // 2. FALLBACK TO ON-CHAIN (If Supabase is empty or fails)
         const { PublicKey } = await import("@solana/web3.js");
         const { Program, AnchorProvider, BN } = await import("@coral-xyz/anchor");
         const { IDL } = await import("@/lib/idl");
-        if (!connection) return;
 
         const PROGRAM_ID = new PublicKey("6cZmF2RJSN2KmYvCDLeiqMZvUFwasjpYY5anBhENnKPR");
         const provider = new AnchorProvider(connection, wallet as any, {});
         const program = new Program(IDL as any, provider);
 
+        // 1. Fetch from Supabase
+        const { data: dbData } = await supabase
+          .from("predictions")
+          .select("*")
+          .eq("user_wallet", publicKey.toBase58());
+
+        // 2. Fetch from Blockchain (On-Chain)
+        const predictionDiscriminator = Buffer.from([98, 127, 141, 187, 218, 33, 8, 14]);
+        const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
+          filters: [
+            { memcmp: { offset: 0, bytes: Buffer.from(predictionDiscriminator).toString("base64"), encoding: "base64" } },
+            { memcmp: { offset: 8, bytes: publicKey.toBase58() } },
+          ],
+        });
+
+        // 3. Create mapping for names
         const matchPdaMap: Record<string, { name: string, id?: number }> = {};
         [...MOCK_MATCHES, ...matches].forEach(m => {
           const onChainMatchId = m.fixtureId || m.id;
@@ -381,44 +373,58 @@ export default function MarketsPage() {
           matchPdaMap[pda.toBase58()] = { name: `${m.teamA} vs ${m.teamB}`, id: m.id };
         });
 
-        const predictionDiscriminator = Buffer.from([98, 127, 141, 187, 218, 33, 8, 14]);
-        const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
-          filters: [
-            { memcmp: { offset: 0, bytes: Buffer.from(predictionDiscriminator).toString("base64"), encoding: "base64" } },
-            { memcmp: { offset: 8, bytes: publicKey.toBase58() } },
-          ],
-        });
+        // 4. Process and Merge
+        const mergedMap = new Map<string, PredictionRecord>();
 
-        const predictions: PredictionRecord[] = [];
+        // Process Supabase Data first
+        if (dbData) {
+          dbData.forEach(d => {
+            mergedMap.set(d.market_pubkey, {
+              match: d.match_name,
+              predLabel: d.prediction_label,
+              amount: d.amount,
+              txSig: d.tx_sig || "",
+              status: d.status as any,
+              matchMarketPubkey: d.market_pubkey,
+              payout: d.payout
+            });
+          });
+        }
+
+        // Process On-Chain Data (fill gaps or override)
         for (const { pubkey, account } of accounts) {
           try {
             const decoded = (program.coder.accounts as any).decode("Prediction", account.data);
-            let predLabel = "";
-            const pt = decoded.predictionType || decoded.prediction_type;
-            if (pt.matchWinner) {
-              const outcome = pt.matchWinner.outcome;
-              predLabel = outcome.teamAWin ? "Home Win" : outcome.teamBWin ? "Away Win" : "Draw";
-            } else if (pt.overUnder) {
-              predLabel = `${pt.overUnder.over ? "Over" : "Under"} ${(pt.overUnder.totalGoals || pt.overUnder.total_goals) / 2}`;
-            } else if (pt.correctScore) {
-              predLabel = `Score: ${pt.correctScore.scoreA || pt.correctScore.score_a}-${pt.correctScore.scoreB || pt.correctScore.score_b}`;
-            }
-            const amountUsdc = (decoded.amount?.toNumber?.() || decoded.amount) / 1_000_000;
             const mmPubkey = (decoded.matchMarket || decoded.match_market).toBase58();
-            const mappedMatch = matchPdaMap[mmPubkey];
             
-            predictions.push({
-              match: mappedMatch ? mappedMatch.name : `Match ${mmPubkey.slice(0, 4)}`,
-              matchId: mappedMatch?.id,
-              predLabel,
-              amount: amountUsdc,
-              txSig: pubkey.toBase58(),
-              status: "Pending",
-              matchMarketPubkey: mmPubkey,
-            });
+            if (!mergedMap.has(mmPubkey)) {
+              let predLabel = "";
+              const pt = decoded.predictionType || decoded.prediction_type;
+              if (pt.matchWinner) {
+                const outcome = pt.matchWinner.outcome;
+                predLabel = outcome.teamAWin ? "Home Win" : outcome.teamBWin ? "Away Win" : "Draw";
+              } else if (pt.overUnder) {
+                predLabel = `${pt.overUnder.over ? "Over" : "Under"} ${(pt.overUnder.totalGoals || pt.overUnder.total_goals) / 2}`;
+              } else if (pt.correctScore) {
+                predLabel = `Score: ${pt.correctScore.scoreA || pt.correctScore.score_a}-${pt.correctScore.scoreB || pt.correctScore.score_b}`;
+              }
+              const amountUsdc = (decoded.amount?.toNumber?.() || decoded.amount) / 1_000_000;
+              const mappedMatch = matchPdaMap[mmPubkey];
+
+              mergedMap.set(mmPubkey, {
+                match: mappedMatch ? mappedMatch.name : `Match ${mmPubkey.slice(0, 4)}`,
+                matchId: mappedMatch?.id,
+                predLabel,
+                amount: amountUsdc,
+                txSig: pubkey.toBase58(),
+                status: "Pending",
+                matchMarketPubkey: mmPubkey,
+              });
+            }
           } catch {}
         }
-        setMyPredictions(predictions);
+
+        setMyPredictions(Array.from(mergedMap.values()).sort((a,b) => b.txSig.localeCompare(a.txSig)));
       } catch (err) {
         console.error("Failed to fetch predictions:", err);
       } finally {
