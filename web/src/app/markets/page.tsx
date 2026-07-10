@@ -568,7 +568,8 @@ export default function MarketsPage() {
       );
       setTxSignature(tx);
       setTxStatus("success");
-      // Save prediction to history immediately
+
+      // Save prediction to history immediately (local state)
       const selMatch = matches.find((m) => m.id === selectedMatch);
       let predLabel = "";
       if (predType === "winner") {
@@ -591,6 +592,21 @@ export default function MarketsPage() {
         const exists = prev.some((p) => p.txSig === tx);
         return exists ? prev : [newPred, ...prev];
       });
+
+      // SYNC TO SUPABASE
+      try {
+        await supabase.from("predictions").insert({
+          user_wallet: publicKey.toBase58(),
+          match_name: newPred.match,
+          market_pubkey: newPred.matchMarketPubkey,
+          prediction_label: newPred.predLabel,
+          amount: newPred.amount,
+          tx_sig: tx,
+          status: "Pending"
+        });
+      } catch (dbErr) {
+        console.warn("Failed to sync prediction to Supabase:", dbErr);
+      }
     } catch (err: any) {
       console.error("Transaction failed:", err);
       setTxStatus("error");
