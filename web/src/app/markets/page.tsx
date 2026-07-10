@@ -328,38 +328,44 @@ export default function MarketsPage() {
       return;
     }
     async function fetchMyPredictions() {
-      if (!connection || !publicKey) return;
+      if (!publicKey) return;
       setLoadingPredictions(true);
       try {
+        // 1. TRY SUPABASE FIRST (Fast & Reliable)
+        const { data: dbData, error: dbError } = await supabase
+          .from("predictions")
+          .select("*")
+          .eq("user_wallet", publicKey.toBase58())
+          .order("created_at", { ascending: false });
+
+        if (dbData && dbData.length > 0) {
+          const predictions: PredictionRecord[] = dbData.map(d => ({
+            match: d.match_name,
+            predLabel: d.prediction_label,
+            amount: d.amount,
+            txSig: d.tx_sig || "",
+            status: d.status as any,
+            matchMarketPubkey: d.market_pubkey,
+            payout: d.payout
+          }));
+          setMyPredictions(predictions);
+          setLoadingPredictions(false);
+          return; // Success, no need to fetch from chain
+        }
+
+        // 2. FALLBACK TO ON-CHAIN (If Supabase is empty or fails)
         const { PublicKey } = await import("@solana/web3.js");
         const { Program, AnchorProvider, BN } = await import("@coral-xyz/anchor");
         const { IDL } = await import("@/lib/idl");
+        if (!connection) return;
 
         const PROGRAM_ID = new PublicKey("6cZmF2RJSN2KmYvCDLeiqMZvUFwasjpYY5anBhENnKPR");
         const provider = new AnchorProvider(connection, wallet as any, {});
         const program = new Program(IDL as any, provider);
 
-        // Fetch all matches from API to ensure we have the full mapping
-        const res = await fetch("/txapi/fixtures");
-        let allMatches = [...matches];
-        if (res.ok) {
-          const fixtures = await res.json();
-          if (Array.isArray(fixtures)) {
-            const txMatches = fixtures.map((f: any) => ({
-              fixtureId: f.FixtureId,
-              teamA: f.Participant1,
-              teamB: f.Participant2,
-            }));
-            // Merge or replace based on your logic, here we just need them for mapping
-          }
-        }
-
-        // Create mapping from PDA to match info
         const matchPdaMap: Record<string, { name: string, id?: number }> = {};
-        // Use both current state matches and potential mocks
         [...MOCK_MATCHES, ...matches].forEach(m => {
           const onChainMatchId = m.fixtureId || m.id;
-          if (!onChainMatchId) return;
           const [pda] = PublicKey.findProgramAddressSync(
             [Buffer.from("match_market"), new BN(onChainMatchId).toArrayLike(Buffer, "le", 8)],
             PROGRAM_ID
@@ -398,13 +404,11 @@ export default function MarketsPage() {
               matchId: mappedMatch?.id,
               predLabel,
               amount: amountUsdc,
-              txSig: pubkey.toBase58(), // Use pubkey as fallback sig for uniqueness
+              txSig: pubkey.toBase58(),
               status: "Pending",
               matchMarketPubkey: mmPubkey,
             });
-          } catch (err) {
-            console.error("Failed to decode Prediction account", pubkey.toBase58(), err);
-          }
+          } catch {}
         }
         setMyPredictions(predictions);
       } catch (err) {

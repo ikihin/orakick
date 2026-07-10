@@ -149,6 +149,30 @@ export default function ProfilePage() {
     async function fetchMyPredictions() {
       setLoadingPredictions(true);
       try {
+        // 1. TRY SUPABASE (Priority)
+        const { data: dbData } = await supabase
+          .from("predictions")
+          .select("*")
+          .eq("user_wallet", publicKey!.toBase58())
+          .order("created_at", { ascending: false });
+
+        if (dbData && dbData.length > 0) {
+          const predictions: PredictionRecord[] = dbData.map(d => ({
+            match: d.match_name,
+            predLabel: d.prediction_label,
+            amount: d.amount,
+            txSig: d.tx_sig || "",
+            status: d.status as any,
+            payout: d.payout,
+            matchMarketPubkey: d.market_pubkey,
+            claimed: d.claimed
+          }));
+          setMyPredictions(predictions);
+          setLoadingPredictions(false);
+          return;
+        }
+
+        // 2. FALLBACK TO ON-CHAIN
         const { PublicKey } = await import("@solana/web3.js");
         const { Program, AnchorProvider } = await import("@coral-xyz/anchor");
         const { IDL } = await import("@/lib/idl");
