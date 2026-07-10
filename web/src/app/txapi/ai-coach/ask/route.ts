@@ -58,16 +58,20 @@ function generateFallbackAnswer(question: string, match: any): string {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { question, match } = body;
+    const { question, match, userSettings } = body;
 
     if (!question || !match) {
       return NextResponse.json({ error: "Missing question or match" }, { status: 400 });
     }
 
     const { teamA, teamB, odds, kickoff, competition } = match;
+    
+    // Prioritize user-provided settings from frontend (BYOK)
+    const provider = userSettings?.provider || process.env.AI_PROVIDER || "gemini";
+    const apiKey = userSettings?.apiKey || process.env.AI_API_KEY || process.env.GEMINI_API_KEY || "";
+    const modelName = userSettings?.model || process.env.AI_MODEL || (provider === "openai" ? "gpt-4o-mini" : "gemini-2.0-flash-lite");
 
-    // Try Gemini
-    if (process.env.GEMINI_API_KEY) {
+    if (apiKey) {
       try {
         const prompt = `You are an expert football betting coach. A user is asking about this match:
 
@@ -80,12 +84,34 @@ User question: "${question}"
 
 Give a concise, helpful answer in 2-3 sentences. Be specific with numbers and odds. Sound confident but acknowledge uncertainty. Do NOT use markdown formatting.`;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
-        const result = await model.generateContent(prompt);
-        const answer = result.response.text().trim();
-        return NextResponse.json({ answer, source: "gemini" });
-      } catch (err) {
-        console.error("Gemini ask-coach failed, falling back to odds analysis:", err);
+        let answer = "";
+
+        if (provider === "openai") {
+          const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: modelName,
+              messages: [{ role: "user", content: prompt }],
+            }),
+          });
+          const data = await response.json();
+          answer = data.choices[0].message.content;
+        } else {
+          // Default: Gemini
+          const { GoogleGenerativeAI } = await import("@google/generative-ai");
+          const genAI = new GoogleGenerativeAI(apiKey);
+          const model = genAI.getGenerativeModel({ model: modelName });
+          const genResult = await model.generateContent(prompt);
+          answer = genResult.response.text().trim();
+        }
+
+        return NextResponse.json({ answer, source: provider });
+      } catch (err: any) {
+        console.warn(`${provider} Ask Coach failed:`, err?.message?.slice(0, 100));
       }
     }
 

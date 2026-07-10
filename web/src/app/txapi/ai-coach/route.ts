@@ -75,14 +75,18 @@ function analyzeWithOdds(match: MatchInput) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { match } = body;
+    const { match, userSettings } = body;
 
     if (!match || !match.odds || !match.teamA || !match.teamB) {
       return NextResponse.json({ error: "Invalid match data" }, { status: 400 });
     }
 
-    // Try Gemini first
-    if (process.env.GEMINI_API_KEY) {
+    // Prioritize user-provided settings from frontend (BYOK)
+    const provider = userSettings?.provider || process.env.AI_PROVIDER || "gemini";
+    const apiKey = userSettings?.apiKey || process.env.AI_API_KEY || process.env.GEMINI_API_KEY || "";
+    const modelName = userSettings?.model || process.env.AI_MODEL || (provider === "openai" ? "gpt-4o-mini" : "gemini-2.0-flash-lite");
+
+    if (apiKey) {
       try {
         const { teamA, teamB, odds, kickoff, competition } = match;
         const prompt = `You are an expert football analyst for a prediction market. Analyze this match concisely.
@@ -97,19 +101,37 @@ Consider: team strength, recent form, head-to-head history, tournament context, 
 Respond ONLY as JSON (no markdown):
 {"recommendation":"home" or "away" or "draw","confidence":number 1-100,"reasoning":"2-3 sentences with specific football insight","valueBet":"1 sentence about odds value","riskLevel":"Low" or "Medium" or "High"}`;
 
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
-        const result = await model.generateContent(prompt);
-        const text = result.response.text().trim();
+        let jsonStr = "";
 
-        let jsonStr = text;
-        if (text.includes("```")) {
-          jsonStr = text.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
+        if (provider === "openai") {
+          const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: modelName,
+              messages: [{ role: "user", content: prompt }],
+              response_format: { type: "json_object" },
+            }),
+          });
+          const data = await response.json();
+          jsonStr = data.choices[0].message.content;
+        } else {
+          // Default: Gemini
+          const { GoogleGenerativeAI } = await import("@google/generative-ai");
+          const genAI = new GoogleGenerativeAI(apiKey);
+          const model = genAI.getGenerativeModel({ model: modelName });
+          const genResult = await model.generateContent(prompt);
+          const text = genResult.response.text().trim();
+          jsonStr = text.includes("```") ? text.replace(/```json?\n?/g, "").replace(/```/g, "").trim() : text;
         }
 
         const advice = JSON.parse(jsonStr);
-        return NextResponse.json({ ...advice, source: "gemini" });
-      } catch (geminiErr: any) {
-        console.warn("Gemini fallback:", geminiErr?.message?.slice(0, 100));
+        return NextResponse.json({ ...advice, source: provider });
+      } catch (aiErr: any) {
+        console.warn(`${provider} fallback:`, aiErr?.message?.slice(0, 100));
       }
     }
 

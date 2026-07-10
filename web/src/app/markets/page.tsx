@@ -243,6 +243,35 @@ export default function MarketsPage() {
   const [askCoachAnswer, setAskCoachAnswer] = useState("");
   const [askCoachLoading, setAskCoachLoading] = useState(false);
 
+  // AI BYOK Settings
+  const [showAiSettings, setShowAiSettings] = useState(false);
+  const [userAiProvider, setUserAiProvider] = useState<"gemini" | "openai">("gemini");
+  const [userAiKey, setUserAiKey] = useState("");
+  const [userAiModel, setUserAiModel] = useState("");
+
+  // Load settings on mount
+  useEffect(() => {
+    const savedProvider = localStorage.getItem("orakick_ai_provider");
+    const savedKey = localStorage.getItem("orakick_ai_key");
+    const savedModel = localStorage.getItem("orakick_ai_model");
+    if (savedProvider === "gemini" || savedProvider === "openai") setUserAiProvider(savedProvider);
+    if (savedKey) setUserAiKey(savedKey);
+    if (savedModel) setUserAiModel(savedModel);
+  }, []);
+
+  const saveAiSettings = () => {
+    localStorage.setItem("orakick_ai_provider", userAiProvider);
+    localStorage.setItem("orakick_ai_key", userAiKey);
+    localStorage.setItem("orakick_ai_model", userAiModel);
+    setShowAiSettings(false);
+  };
+
+  const getAiSettings = () => ({
+    provider: userAiProvider,
+    apiKey: userAiKey,
+    model: userAiModel
+  });
+
   // Fetch user's on-chain predictions
   useEffect(() => {
     if (!connected || !publicKey) {
@@ -407,6 +436,7 @@ export default function MarketsPage() {
 
     setAiLoading(true);
     setAiAdvice(null);
+    const userSettings = getAiSettings();
     fetch("/txapi/ai-coach", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -418,6 +448,7 @@ export default function MarketsPage() {
           kickoff: match.kickoff,
           competition: match.competition,
         },
+        userSettings,
       }),
     })
       .then((r) => {
@@ -433,6 +464,27 @@ export default function MarketsPage() {
       })
       .finally(() => setAiLoading(false));
   }, [selectedMatch, matches]);
+
+  const handleAskCoach = async () => {
+    if (!askCoachQuestion.trim() || askCoachLoading) return;
+    setAskCoachLoading(true);
+    const userSettings = getAiSettings();
+    const selMatch = matches.find((m) => m.id === selectedMatch);
+    try {
+      const res = await fetch("/txapi/ai-coach/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: askCoachQuestion, match: selMatch, userSettings }),
+      });
+      const data = await res.json();
+      setAskCoachAnswer(data.answer);
+    } catch (err) {
+      console.error("Ask Coach error:", err);
+      setAskCoachAnswer("Sorry, I'm having trouble responding right now.");
+    } finally {
+      setAskCoachLoading(false);
+    }
+  };
 
   const handlePredict = useCallback(async () => {
     if (!connected || !selectedMatch || !amount) return;
