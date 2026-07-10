@@ -279,22 +279,38 @@ export default function MarketsPage() {
       return;
     }
     async function fetchMyPredictions() {
+      if (!connection || !publicKey) return;
       setLoadingPredictions(true);
       try {
         const { PublicKey } = await import("@solana/web3.js");
         const { Program, AnchorProvider, BN } = await import("@coral-xyz/anchor");
         const { IDL } = await import("@/lib/idl");
 
-        if (!connection || !publicKey) return;
-
         const PROGRAM_ID = new PublicKey("6cZmF2RJSN2KmYvCDLeiqMZvUFwasjpYY5anBhENnKPR");
         const provider = new AnchorProvider(connection, wallet as any, {});
         const program = new Program(IDL as any, provider);
 
-        // Pre-derive PDAs for current matches to map back from on-chain data
-        const matchPdaMap: Record<string, { name: string, id: number }> = {};
-        matches.forEach(m => {
+        // Fetch all matches from API to ensure we have the full mapping
+        const res = await fetch("/txapi/fixtures");
+        let allMatches = [...matches];
+        if (res.ok) {
+          const fixtures = await res.json();
+          if (Array.isArray(fixtures)) {
+            const txMatches = fixtures.map((f: any) => ({
+              fixtureId: f.FixtureId,
+              teamA: f.Participant1,
+              teamB: f.Participant2,
+            }));
+            // Merge or replace based on your logic, here we just need them for mapping
+          }
+        }
+
+        // Create mapping from PDA to match info
+        const matchPdaMap: Record<string, { name: string, id?: number }> = {};
+        // Use both current state matches and potential mocks
+        [...MOCK_MATCHES, ...matches].forEach(m => {
           const onChainMatchId = m.fixtureId || m.id;
+          if (!onChainMatchId) return;
           const [pda] = PublicKey.findProgramAddressSync(
             [Buffer.from("match_market"), new BN(onChainMatchId).toArrayLike(Buffer, "le", 8)],
             PROGRAM_ID
@@ -302,7 +318,6 @@ export default function MarketsPage() {
           matchPdaMap[pda.toBase58()] = { name: `${m.teamA} vs ${m.teamB}`, id: m.id };
         });
 
-        // Fetch all Prediction accounts owned by this user using getProgramAccounts
         const predictionDiscriminator = Buffer.from([98, 127, 141, 187, 218, 33, 8, 14]);
         const accounts = await connection.getProgramAccounts(PROGRAM_ID, {
           filters: [
@@ -319,30 +334,23 @@ export default function MarketsPage() {
             const pt = decoded.predictionType || decoded.prediction_type;
             if (pt.matchWinner) {
               const outcome = pt.matchWinner.outcome;
-              predLabel = outcome.teamAWin ? "Team A Win" : outcome.teamBWin ? "Team B Win" : "Draw";
+              predLabel = outcome.teamAWin ? "Home Win" : outcome.teamBWin ? "Away Win" : "Draw";
             } else if (pt.overUnder) {
-              predLabel = `${pt.overUnder.over ? "Over" : "Under"} ${pt.overUnder.totalGoals || pt.overUnder.total_goals}`;
+              predLabel = `${pt.overUnder.over ? "Over" : "Under"} ${(pt.overUnder.totalGoals || pt.overUnder.total_goals) / 2}`;
             } else if (pt.correctScore) {
               predLabel = `Score: ${pt.correctScore.scoreA || pt.correctScore.score_a}-${pt.correctScore.scoreB || pt.correctScore.score_b}`;
             }
             const amountUsdc = (decoded.amount?.toNumber?.() || decoded.amount) / 1_000_000;
             const mmPubkey = (decoded.matchMarket || decoded.match_market).toBase58();
             const mappedMatch = matchPdaMap[mmPubkey];
-            const matchName = mappedMatch ? mappedMatch.name : `Match ${mmPubkey.slice(0, 4)}`;
-            const matchId = mappedMatch ? mappedMatch.id : undefined;
-
-            // Mock status for demo purposes based on address
-            const mockStatus: "Win" | "Lose" | "Pending" = (pubkey.toBase58().charCodeAt(0) % 3 === 0) ? "Win" : (pubkey.toBase58().charCodeAt(0) % 3 === 1) ? "Lose" : "Pending";
-            const mockPayout = mockStatus === "Win" ? amountUsdc * 2.1 : 0;
             
             predictions.push({
-              match: matchName,
-              matchId,
+              match: mappedMatch ? mappedMatch.name : `Match ${mmPubkey.slice(0, 4)}`,
+              matchId: mappedMatch?.id,
               predLabel,
               amount: amountUsdc,
-              txSig: "",
-              status: mockStatus,
-              payout: mockPayout,
+              txSig: pubkey.toBase58(), // Use pubkey as fallback sig for uniqueness
+              status: "Pending",
               matchMarketPubkey: mmPubkey,
             });
           } catch (err) {
