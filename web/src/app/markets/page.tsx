@@ -254,20 +254,26 @@ export default function MarketsPage() {
   const [txSignature, setTxSignature] = useState<string>("");
   const [myPredictions, setMyPredictions] = useState<PredictionRecord[]>([]);
   const [globalPredictions, setGlobalPredictions] = useState<any[]>([]);
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [loadingPredictions, setLoadingPredictions] = useState(false);
 
-  // Subscribe to Global Predictions (Realtime)
+  // Subscribe to Global Predictions (Realtime) & Fetch Leaderboard
   useEffect(() => {
     // Initial fetch for global feed
-    const fetchGlobal = async () => {
-      const { data } = await supabase
+    const fetchData = async () => {
+      const { data: gData } = await supabase
         .from("predictions")
         .select("*")
         .order("created_at", { ascending: false })
         .limit(10);
-      if (data) setGlobalPredictions(data);
+      if (gData) setGlobalPredictions(gData);
+
+      const { data: lData } = await supabase
+        .from("leaderboard")
+        .select("*");
+      if (lData) setLeaderboard(lData);
     };
-    fetchGlobal();
+    fetchData();
 
     // Live subscription
     const channel = supabase
@@ -277,6 +283,8 @@ export default function MarketsPage() {
         { event: "INSERT", schema: "public", table: "predictions" },
         (payload) => {
           setGlobalPredictions((prev) => [payload.new, ...prev.slice(0, 9)]);
+          // Refresh leaderboard on new prediction
+          fetchData(); 
         }
       )
       .subscribe();
@@ -1265,10 +1273,33 @@ export default function MarketsPage() {
                 <button 
                   onClick={() => setAskCoachOpen(true)}
                   className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-bold transition-all border border-white/10"
-                >
-                  OPEN ANALYSIS TOOL
                 </button>
               </div>
+
+              {/* Top Predictors Leaderboard */}
+              {leaderboard.length > 0 && (
+                <div className="bg-golden/5 border border-golden/20 rounded-3xl p-6 space-y-4 shadow-lg shadow-golden/5">
+                  <h3 className="text-xs font-bold text-navy flex justify-between items-center">
+                    TOP PREDICTORS
+                    <span className="text-[10px] text-golden font-black uppercase tracking-tighter">Champions</span>
+                  </h3>
+                  <div className="space-y-3">
+                    {leaderboard.map((entry, i) => (
+                      <div key={entry.wallet_address} className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                            i === 0 ? "bg-golden text-white" : i === 1 ? "bg-slate-300 text-white" : i === 2 ? "bg-amber-600 text-white" : "bg-navy/5 text-navy/40"
+                          }`}>
+                            {i + 1}
+                          </span>
+                          <span className="text-xs font-bold text-navy truncate max-w-[100px]">{entry.username}</span>
+                        </div>
+                        <span className="text-[11px] font-black text-navy">{Math.floor(entry.total_volume)} USDC</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               
               {/* Global Activity Feed */}
               <div className="glass rounded-3xl p-6 border border-white/30 space-y-4">
