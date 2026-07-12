@@ -93,7 +93,7 @@ export default function Navbar() {
     <nav className="fixed top-0 left-0 right-0 z-50 glass">
       <div className="max-w-7xl mx-auto px-6 py-2 flex items-center justify-between">
         <a href="/" className="flex items-center">
-          <Image src="/logo.png" alt="Orakick" width={300} height={100} className="h-24 w-auto" />
+          <Image src="/logo.png" alt="Orakick" width={300} height={100} className="h-24 w-auto" priority />
         </a>
 
         <div className="hidden md:flex items-center gap-2">

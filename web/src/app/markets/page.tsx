@@ -728,6 +728,7 @@ export default function MarketsPage() {
               width={300}
               height={100}
               className="h-24 w-auto"
+              priority
             />
           </a>
           <div className="flex items-center gap-4">

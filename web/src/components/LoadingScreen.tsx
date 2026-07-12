@@ -37,7 +37,14 @@ export default function LoadingScreen() {
 
       {/* Brand */}
       <div className="mb-4">
-        <Image src="/logo.png" alt="Orakick" width={600} height={200} className="h-64 w-auto" />
+        <Image 
+          src="/logo.png" 
+          alt="Orakick" 
+          width={300} 
+          height={100} 
+          className="h-32 w-auto object-contain" 
+          priority
+        />
       </div>
 
       {/* Loading bar */}
