@@ -31,6 +31,9 @@ interface MatchData {
   source: "txline" | "mock";
   competition: string;
   marketPubkey?: string;
+  status?: "NotStarted" | "Started" | "Finished" | string;
+  scoreA?: number;
+  scoreB?: number;
 }
 
 const FLAG_MAP: Record<string, string> = {
@@ -249,6 +252,7 @@ export default function MarketsPage() {
   const [orderSide, setOrderSide] = useState<"buy" | "sell">("buy");
   const [marketFilter, setMarketFilter] = useState("Winner");
   const [tournamentFilter, setTournamentFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState<"Upcoming" | "Results">("Upcoming");
   const [selectedMarketId, setSelectedMarketId] = useState<string>("home");
   const [txStatus, setTxStatus] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [txSignature, setTxSignature] = useState<string>("");
@@ -470,8 +474,13 @@ export default function MarketsPage() {
               console.warn(`Failed to load odds for fixture ${f.FixtureId}, using defaults:`, err);
             }
 
+            const [pda] = PublicKey.findProgramAddressSync(
+              [Buffer.from("match_market"), new BN(f.FixtureId).toArrayLike(Buffer, "le", 8)],
+              PROGRAM_ID
+            );
+
             return {
-              id: i + 1,
+              id: 1000 + i, // Offset to avoid conflict with mocks
               fixtureId: f.FixtureId,
               teamA: f.Participant1,
               teamB: f.Participant2,
@@ -482,6 +491,10 @@ export default function MarketsPage() {
               odds,
               source: "txline" as const,
               competition: f.Competition || "Other",
+              marketPubkey: pda.toBase58(),
+              status: f.Status || "NotStarted",
+              scoreA: f.Score1 ?? 0,
+              scoreB: f.Score2 ?? 0,
             };
           })
         );
@@ -816,67 +829,109 @@ export default function MarketsPage() {
                 return (
                   <div className="space-y-6">
                     {/* Sidebar Filters */}
-                    <div className="flex gap-2 mb-4 px-2 overflow-x-auto pb-2 no-scrollbar">
-                      {["All", "Group A", "Group B", "Knockout"].map(f => (
-                        <button 
-                          key={f} 
-                          onClick={() => setTournamentFilter(f)}
-                          className={`whitespace-nowrap px-3 py-1 border rounded-lg text-[9px] font-bold transition-all ${
-                            tournamentFilter === f 
-                              ? "bg-forest text-white border-forest" 
-                              : "bg-white/50 border-navy/5 text-navy/40 hover:bg-forest/10 hover:text-forest"
-                          }`}
-                        >
-                          {f}
-                        </button>
-                      ))}
-                    </div>
-                    {sortedKeys.filter(comp => tournamentFilter === "All" || (tournamentFilter === "Group A" && comp === "World Cup") || (tournamentFilter === "Group B" && comp === "Friendlies")).map((comp) => (
-                  <div key={comp} className={`space-y-3 p-2 rounded-2xl transition-all ${comp === "World Cup" ? "bg-forest/5 border border-forest/20 shadow-sm" : ""}`}>
-                    <h3 className={`font-bold uppercase tracking-widest px-2 ${comp === "World Cup" ? "text-forest text-[14px] mb-2" : "text-navy/40 text-[10px]"}`}>
-                      {comp === "World Cup" ? "🏆 " : ""}{comp}
-                    </h3>
-                    <div className="space-y-1">
-                      {groups[comp].map((match) => {
-                        const active = selectedMatch === match.id;
-                        return (
-                          <div
-                            key={match.id}
-                            onClick={() => setSelectedMatch(match.id)}
-                            className={`px-3 py-3 rounded-xl cursor-pointer transition-all border ${
-                              active 
-                                ? "bg-white border-forest/30 shadow-sm" 
-                                : "border-transparent hover:bg-white/40"
+                    <div className="flex flex-col gap-3 mb-6">
+                      <div className="flex bg-navy/5 p-1 rounded-xl">
+                        {["Upcoming", "Results"].map(s => (
+                          <button
+                            key={s}
+                            onClick={() => setStatusFilter(s as any)}
+                            className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${
+                              statusFilter === s 
+                                ? "bg-white text-navy shadow-sm" 
+                                : "text-navy/40 hover:text-navy/60"
                             }`}
                           >
-                            <div className="flex justify-between items-center mb-1">
-                              <span className="text-[9px] text-navy/40 font-mono">
-                                {new Date(match.kickoff).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                              <span className="text-[9px] font-bold text-forest">${(match.pool/1000).toFixed(1)}k</span>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-sm">{match.flagA}</span>
-                                  <span className={`text-xs font-medium ${active ? "text-navy" : "text-navy/70"}`}>{match.teamA}</span>
-                                </div>
-                                <span className="text-[10px] font-bold text-navy/30">{match.odds.home.toFixed(2)}</span>
-                              </div>
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-sm">{match.flagB}</span>
-                                  <span className={`text-xs font-medium ${active ? "text-navy" : "text-navy/70"}`}>{match.teamB}</span>
-                                </div>
-                                <span className="text-[10px] font-bold text-navy/30">{match.odds.away.toFixed(2)}</span>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                      
+                      <div className="flex gap-2 px-2 overflow-x-auto pb-2 no-scrollbar">
+                        {["All", "Group A", "Group B", "Knockout"].map(f => (
+                          <button 
+                            key={f} 
+                            onClick={() => setTournamentFilter(f)}
+                            className={`whitespace-nowrap px-3 py-1 border rounded-lg text-[9px] font-bold transition-all ${
+                              tournamentFilter === f 
+                                ? "bg-forest text-white border-forest" 
+                                : "bg-white/50 border-navy/5 text-navy/40 hover:bg-forest/10 hover:text-forest"
+                            }`}
+                          >
+                            {f}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                    ))}
+
+                    {sortedKeys.filter(comp => tournamentFilter === "All" || (tournamentFilter === "Group A" && comp === "World Cup") || (tournamentFilter === "Group B" && comp === "Friendlies")).map((comp) => {
+                      const compMatches = groups[comp].filter(m => 
+                        statusFilter === "Upcoming" ? m.status !== "Finished" : m.status === "Finished"
+                      );
+                      if (compMatches.length === 0) return null;
+
+                      return (
+                        <div key={comp} className={`space-y-3 p-2 rounded-2xl transition-all ${comp === "World Cup" ? "bg-forest/5 border border-forest/20 shadow-sm" : ""}`}>
+                          <h3 className={`font-bold uppercase tracking-widest px-2 ${comp === "World Cup" ? "text-forest text-[14px] mb-2" : "text-navy/40 text-[10px]"}`}>
+                            {comp === "World Cup" ? "🏆 " : ""}{comp}
+                          </h3>
+                          <div className="space-y-1">
+                            {compMatches.map((match) => {
+                              const active = selectedMatch === match.id;
+                              const isFinished = match.status === "Finished";
+                              return (
+                                <div
+                                  key={match.id}
+                                  onClick={() => setSelectedMatch(match.id)}
+                                  className={`px-3 py-3 rounded-xl cursor-pointer transition-all border ${
+                                    active 
+                                      ? "bg-white border-forest/30 shadow-sm" 
+                                      : "border-transparent hover:bg-white/40"
+                                  }`}
+                                >
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="text-[9px] text-navy/40 font-mono">
+                                      {isFinished 
+                                        ? new Date(match.kickoff).toLocaleDateString([], { month: 'short', day: 'numeric' })
+                                        : new Date(match.kickoff).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                                      }
+                                    </span>
+                                    {isFinished ? (
+                                      <span className="text-[8px] font-black text-navy/30 uppercase tracking-tighter bg-navy/5 px-1.5 py-0.5 rounded">Final Result</span>
+                                    ) : (
+                                      <span className="text-[9px] font-bold text-forest">${(match.pool/1000).toFixed(1)}k</span>
+                                    )}
+                                  </div>
+                                  <div className="flex flex-col gap-1">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-sm">{match.flagA}</span>
+                                        <span className={`text-xs font-medium ${active ? "text-navy" : "text-navy/70"}`}>{match.teamA}</span>
+                                      </div>
+                                      {isFinished ? (
+                                        <span className="text-xs font-black text-navy">{match.scoreA}</span>
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-navy/30">{match.odds.home.toFixed(2)}</span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-sm">{match.flagB}</span>
+                                        <span className={`text-xs font-medium ${active ? "text-navy" : "text-navy/70"}`}>{match.teamB}</span>
+                                      </div>
+                                      {isFinished ? (
+                                        <span className="text-xs font-black text-navy">{match.scoreB}</span>
+                                      ) : (
+                                        <span className="text-[10px] font-bold text-navy/30">{match.odds.away.toFixed(2)}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })()}
@@ -897,7 +952,9 @@ export default function MarketsPage() {
                     <div className="glass rounded-3xl p-6 border border-white/30">
                       <div className="flex items-center justify-between mb-6">
                         <div className="flex items-center gap-3">
-                          <span className="px-2 py-0.5 bg-forest/10 text-forest text-[10px] font-bold rounded uppercase tracking-wider">Live Market</span>
+                          <span className={`px-2 py-0.5 ${match.status === "Finished" ? "bg-navy/10 text-navy/40" : "bg-forest/10 text-forest"} text-[10px] font-bold rounded uppercase tracking-wider`}>
+                            {match.status === "Finished" ? "Match Settled" : "Live Market"}
+                          </span>
                           <span className="text-[11px] text-navy/40">{match.competition} • {match.kickoff}</span>
                         </div>
                         <div className="flex -space-x-2">
@@ -914,10 +971,23 @@ export default function MarketsPage() {
                           <span className="font-bold text-navy">{match.teamA}</span>
                         </div>
                         <div className="flex flex-col items-center">
-                          <span className="text-3xl font-black text-navy/20 italic">VS</span>
-                          <div className="mt-2 px-3 py-1 bg-navy/5 rounded-full text-[10px] font-bold text-navy/40 uppercase tracking-tighter">
-                            Match Odds
-                          </div>
+                          {match.status === "Finished" ? (
+                            <div className="flex flex-col items-center">
+                              <div className="flex items-center gap-4">
+                                <span className="text-4xl font-black text-navy">{match.scoreA}</span>
+                                <span className="text-xl font-bold text-navy/20">-</span>
+                                <span className="text-4xl font-black text-navy">{match.scoreB}</span>
+                              </div>
+                              <span className="text-[10px] font-bold text-forest uppercase tracking-widest mt-2">Full Time</span>
+                            </div>
+                          ) : (
+                            <>
+                              <span className="text-3xl font-black text-navy/20 italic">VS</span>
+                              <div className="mt-2 px-3 py-1 bg-navy/5 rounded-full text-[10px] font-bold text-navy/40 uppercase tracking-tighter">
+                                Match Odds
+                              </div>
+                            </>
+                          )}
                         </div>
                         <div className="flex flex-col items-center gap-2">
                           <div className="w-16 h-16 bg-white/50 rounded-2xl flex items-center justify-center text-4xl shadow-sm">{match.flagB}</div>
@@ -1176,11 +1246,18 @@ export default function MarketsPage() {
                         {(() => {
                           const selMatch = matches.find((m) => m.id === selectedMatch);
                           const started = selMatch ? new Date(selMatch.kickoff).getTime() < Date.now() : false;
+                          const isFinished = selMatch?.status === "Finished";
                           const hasPredicted = myPredictions.some(p => p.matchMarketPubkey === selMatch?.marketPubkey);
                           
+                          if (isFinished) return (
+                            <div className="w-full py-3 bg-navy/10 text-navy/40 font-bold rounded-full text-center text-sm uppercase tracking-widest">
+                              Market Resolved
+                            </div>
+                          );
+
                           if (started) return (
                             <div className="w-full py-3 bg-red-500/20 text-red-600 font-medium rounded-full text-center text-sm">
-                              Match already started
+                              Match in Progress
                             </div>
                           );
                           

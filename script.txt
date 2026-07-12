@@ -1,0 +1,25 @@
+# ORAKICK DEMO SCRIPT - "The Future of World Cup Predictions"
+
+[0:00 - 0:45] INTRODUCTION
+Visual: Landing page scrolling.
+Speaker: "Welcome to Orakick. Standard prediction markets are often slow and lack verifiable real-time insights. For World Cup 2026, we’ve built Orakick—a decentralized, AI-powered platform anchored on Solana. By leveraging high-speed blockchain settlement and TxLINE’s cryptographic sports data, we ensure every prediction is transparent and trustless."
+
+[0:45 - 1:45] WALLET CONNECTION & DEVNET
+Visual: Click 'Connect Wallet' button, select Phantom/Solflare, confirm connection.
+Speaker: "Getting started is seamless. We utilize the Solana Wallet Adapter to connect users directly to our platform on the Solana Devnet. As you can see, the connection is instant, allowing us to fetch your persistent user profile from our Supabase backend while keeping your private keys secure in your own wallet."
+
+[1:45 - 2:45] REAL-TIME DATA & TxLINE SSE STREAM
+Visual: Show the Markets dashboard, fixtures updating, odds changing.
+Speaker: "Orakick is powered by TxLINE’s high-performance data layer. We utilize their high-speed SSE Stream to deliver real-time World Cup data—including live scores, match events, and betting odds—directly to our frontend. Because TxLINE uses a single, normalised JSON schema, we can scale from local matches to international tournaments seamlessly. Most importantly, every data point is backed by cryptographic signatures anchored on Solana, providing a publicly verifiable source of truth."
+
+[2:45 - 3:30] AI COACH & BYOK (BRING YOUR OWN KEY)
+Visual: Select a match, show AI Coach widget, click Gear icon.
+Speaker: "To give our users a competitive edge, we’ve integrated a Gemini 2.0 AI Coach. Our AI analyzes the real-time data from TxLINE to provide tactical insights. What makes Orakick unique is our 'Bring Your Own Key' or BYOK system. By clicking this gear icon, users can plug in their own API keys to personalize their tactical advice and manage their own AI costs—making Orakick a truly community-driven platform."
+
+[3:30 - 4:30] ON-CHAIN SETTLEMENT & CELEBRATION
+Visual: Enter 10 USDC, click 'PREDICT', show transaction confirmation, Confetti 🎉 burst.
+Speaker: "Let's place a prediction on Solana Devnet. When I click 'Predict', our Anchor-based smart contract securely escrows the funds in a Program Derived Address. Our settlement engine is designed to interact with TxLINE's cryptographic Merkle proofs to verify results trustlessly. Once confirmed, we celebrate with this success effect, and the Global Activity Feed updates instantly via Supabase Realtime."
+
+[4:30 - 5:00] PROFILE & LEADERBOARD
+Visual: Go to Profile page, show dual-sync history, point to Leaderboard.
+Speaker: "Our Dual-Sync system ensures that your history is fetched from both Supabase and the blockchain. Finally, our Top Predictors Leaderboard fosters a competitive ecosystem. Orakick is the social, AI-driven layer for sports, built for the Solana ecosystem. Join us on Devnet. Thank you."
