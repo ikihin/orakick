@@ -5,6 +5,8 @@ import Image from "next/image";
 import WalletButton from "@/components/WalletButton";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useConnection } from "@solana/wallet-adapter-react";
+import { PublicKey } from "@solana/web3.js";
+import { BN } from "@coral-xyz/anchor";
 import { supabase } from "@/lib/supabase";
 import confetti from "canvas-confetti";
 import {
@@ -343,8 +345,7 @@ export default function MarketsPage() {
       if (!publicKey || !connection) return;
       setLoadingPredictions(true);
       try {
-        const { PublicKey } = await import("@solana/web3.js");
-        const { Program, AnchorProvider, BN } = await import("@coral-xyz/anchor");
+        const { Program, AnchorProvider } = await import("@coral-xyz/anchor");
         const { IDL } = await import("@/lib/idl");
 
         const PROGRAM_ID = new PublicKey("6cZmF2RJSN2KmYvCDLeiqMZvUFwasjpYY5anBhENnKPR");
@@ -441,6 +442,8 @@ export default function MarketsPage() {
   useEffect(() => {
     async function fetchTxLineData() {
       try {
+        const PROGRAM_ID = new PublicKey("6cZmF2RJSN2KmYvCDLeiqMZvUFwasjpYY5anBhENnKPR");
+
         const res = await fetch("/txapi/fixtures");
         if (!res.ok) throw new Error("API error");
         const fixtures = await res.json();
@@ -611,8 +614,6 @@ export default function MarketsPage() {
       const onChainMatchId = match.fixtureId || match.id;
       const kickoffEpoch = Math.floor(new Date(match.kickoff).getTime() / 1000);
       
-      const { PublicKey } = await import("@solana/web3.js");
-      const { BN } = await import("@coral-xyz/anchor");
       const PROGRAM_ID = new PublicKey("6cZmF2RJSN2KmYvCDLeiqMZvUFwasjpYY5anBhENnKPR");
       const [matchMarket] = PublicKey.findProgramAddressSync(
         [Buffer.from("match_market"), new BN(onChainMatchId).toArrayLike(Buffer, "le", 8)],

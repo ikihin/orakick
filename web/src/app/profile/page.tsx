@@ -173,7 +173,6 @@ export default function ProfilePage() {
         }
 
         // 2. FALLBACK TO ON-CHAIN
-        const { PublicKey } = await import("@solana/web3.js");
         const { Program, AnchorProvider } = await import("@coral-xyz/anchor");
         const { IDL } = await import("@/lib/idl");
 
